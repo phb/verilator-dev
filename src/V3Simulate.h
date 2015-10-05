@@ -839,6 +839,10 @@ public:
 	setMode(true/*scoped*/,false/*checking*/, false/*params*/);
 	mainGuts(nodep);
     }
+    void checkTree   (AstNode* nodep) {
+	setMode(false/*scoped*/,true/*checking*/, false/*params*/);
+	mainGuts(nodep);
+    }
     void mainParamEmulate (AstNode* nodep) {
 	setMode(false/*scoped*/,false/*checking*/, true/*params*/);
 	mainGuts(nodep);

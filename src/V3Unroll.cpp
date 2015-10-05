@@ -40,6 +40,7 @@
 #include "V3Stats.h"
 #include "V3Const.h"
 #include "V3Ast.h"
+#include "V3Simulate.h"
 
 //######################################################################
 // Unroll state, as a visitor of each AstNode
@@ -107,19 +108,12 @@ private:
 	if (precondsp)	UINFO(6, "    Pcon "<<precondsp<<endl);
 	if (condp)	UINFO(6, "    Cond "<<condp<<endl);
 	if (incp)	UINFO(6, "    Inc  "<<incp<<endl);
+
 	// Initial value check
 	AstAssign* initAssp = initp->castAssign();
 	if (!initAssp) return cantUnroll(nodep, "no initial assignment");
 	if (initp->nextp() && initp->nextp()!=nodep) nodep->v3fatalSrc("initial assignment shouldn't be a list");
 	if (!initAssp->lhsp()->castVarRef()) return cantUnroll(nodep, "no initial assignment to simple variable");
-	m_forVarp = initAssp->lhsp()->castVarRef()->varp();
-	m_forVscp = initAssp->lhsp()->castVarRef()->varScopep();
-	if (nodep->castGenFor() && !m_forVarp->isGenVar()) {
-	    nodep->v3error("Non-genvar used in generate for: "<<m_forVarp->prettyName()<<endl);
-	}
-	if (m_generate) V3Const::constifyParamsEdit(initAssp->rhsp());  // rhsp may change
-	AstConst* constInitp = initAssp->rhsp()->castConst();
-	if (!constInitp) return cantUnroll(nodep, "non-constant initializer");
 	//
 	// Condition check
 	if (condp->nextp()) nodep->v3fatalSrc("conditional shouldn't be a list");
@@ -128,79 +122,48 @@ private:
 	AstAssign* incAssp = incp->castAssign();
 	if (!incAssp) return cantUnroll(nodep, "no increment assignment");
 	if (incAssp->nextp()) nodep->v3fatalSrc("increment shouldn't be a list");
-	AstNodeBiop* incInstrp = incAssp->rhsp()->castNodeBiop();
+
+	m_forVarp = initAssp->lhsp()->castVarRef()->varp();
+	m_forVscp = initAssp->lhsp()->castVarRef()->varScopep();
+	if (nodep->castGenFor() && !m_forVarp->isGenVar()) {
+	    nodep->v3error("Non-genvar used in generate for: "<<m_forVarp->prettyName()<<endl);
+	}
+	if (m_generate) V3Const::constifyParamsEdit(initAssp->rhsp());  // rhsp may change
+
+	// This check shouldn't be needed when using V3Simulate
+	// however, for repeat loops, the loop variable is auto-generated
+	// and the initp statements will reference a variable outside of the initp scope
+	// alas, failing to simulate.
+	AstConst* constInitp = initAssp->rhsp()->castConst();
+	if (!constInitp) return cantUnroll(nodep, "non-constant initializer");
+
+	//
+	// Now, make sure there's no assignment to this variable in the loop
+	m_varModeCheck = true;
+	m_varAssignHit = false;
+	m_ignoreIncp = incp;
+	precondsp->iterateAndNext(*this);
+	bodysp->iterateAndNext(*this);
+	incp->iterateAndNext(*this);
+	m_varModeCheck = false;
+	m_ignoreIncp = NULL;
+	if (m_varAssignHit) return cantUnroll(nodep, "genvar assigned *inside* loop");
+
 	//
 	if (m_forVscp) { UINFO(8, "   Loop Variable: "<<m_forVscp<<endl); }
 	else	       { UINFO(8, "   Loop Variable: "<<m_forVarp<<endl); }
 	if (debug()>=9) nodep->dumpTree(cout,"-   for: ");
-	//
-	// Extract the constant loop bounds
-	bool subtract = incInstrp->castSub();
-	{
-	    if (!subtract && !incInstrp->castAdd()) return cantUnroll(nodep, "missing add/sub for incrementer");
-	    AstVarRef* incVarrp   = (subtract ? incInstrp->lhsp()->castVarRef()
-				     : incInstrp->rhsp()->castVarRef());
-	    if (!incVarrp) return cantUnroll(nodep, "missing variable in incrementer");
-	    if (incVarrp->varp() != m_forVarp
-		|| incVarrp->varScopep() != m_forVscp) {
-		return cantUnroll(nodep, "different variables in incrementer");
-	    }
-	}
-	//
-	// Adds have the # on the lhsp because V3Const pushes rhs consts over to the lhs
-	// Subtracts have it on the rhs, because you write i=i-1; i=1-i is non-sensible.
-	AstConst* preconstIncp = (subtract ? incInstrp->rhsp()->castConst()
-				  : incInstrp->lhsp()->castConst());
-	if (m_generate) preconstIncp = V3Const::constifyParamsEdit(preconstIncp)->castConst();
-	AstConst* constIncp = (subtract ? incInstrp->rhsp()->castConst()
-			       : incInstrp->lhsp()->castConst());
-	UINFO(8, "   Inc expr ok:  "<<constIncp<<endl);
-	if (!constIncp) return cantUnroll(nodep, "non-constant increment");
-	if (constIncp->isZero()) return cantUnroll(nodep, "zero increment");  // Or we could loop forever below...
 
-        bool lt  = condp->castLt()  || condp->castLtS();
-        bool lte = condp->castLte() || condp->castLteS();
-	bool gt  = condp->castGt()  || condp->castGtS();
-	bool gte = condp->castGte() || condp->castGteS();
-	if (!lt && !lte && !gt && !gte)
-	    return cantUnroll(nodep, "condition not <=, <, >= or >");
-	AstNodeBiop* cmpInstrp = condp->castNodeBiop();
-	bool cmpVarLhs;
-	if (cmpInstrp->lhsp()->castVarRef()
-	    && cmpInstrp->lhsp()->castVarRef()->varp() == m_forVarp
-	    && cmpInstrp->lhsp()->castVarRef()->varScopep() == m_forVscp) {
-	    cmpVarLhs = true;
-	} else if (cmpInstrp->rhsp()->castVarRef()
-		   && cmpInstrp->rhsp()->castVarRef()->varp() == m_forVarp
-		   && cmpInstrp->rhsp()->castVarRef()->varScopep() == m_forVscp) {
-	    cmpVarLhs = false;
-	} else if (!cmpInstrp->rhsp()->castVarRef()) {
-	    return cantUnroll(nodep, "no variable on rhs of condition");
-	} else {
-	    return cantUnroll(nodep, "different variable in condition");
+
+	if(!m_generate) {
+	    AstAssign *incpAssign = incp->castAssign();
+	    if (!canSimulate(incpAssign->rhsp())) return cantUnroll(incp, "Unable to simulate increment");
+	    if (!canSimulate(condp)) return cantUnroll(incp, "Unable to simulate condition");
 	}
 
-	if (m_generate) V3Const::constifyParamsEdit(cmpVarLhs ? cmpInstrp->rhsp()
-						    : cmpInstrp->lhsp());  // rhsp/lhsp may change
-	AstConst* constStopp = (cmpVarLhs ? cmpInstrp->rhsp()->castConst()
-				: cmpInstrp->lhsp()->castConst());
-	if (!constStopp) return cantUnroll(nodep, "non-constant final value");
-	UINFO(8, "   Stop expr ok: "<<constStopp<<endl);
-	//
-	if (constInitp->width()>32 || constInitp->num().isFourState()
-	    || constStopp->width()>32 || constStopp->num().isFourState()
-	    || constIncp->width()>32  || constIncp->num().isFourState())
-	    return cantUnroll(nodep, "init/final/increment too large or four state");
-	vlsint32_t valInit = constInitp->num().toSInt();
-	vlsint32_t valStop = constStopp->num().toSInt();
-	if (gte) valStop++;  if (lte) valStop--;   // 23 >= a, handle as if 24 > a
-	vlsint32_t valInc  = constIncp->num().toSInt();
-	if (subtract) valInc = -valInc;
-	UINFO(8,"     In Numbers: for (v="<<valInit<<"; v<"<<valStop<<"; v=v+"<<valInc<<")\n");
-	//
+	// Check whether to we actually want to try and unroll.
 	if (!m_generate) {
-	    int loops = ((valStop - valInit)/valInc);
-	    if (loops < 0) { loops += (1ULL<<constStopp->width()); } // Will roll around
+	    int loops = countLoops(initAssp, condp, incp, unrollCount());
 	    UINFO(8, "         ~Iters: "<<loops<<" c="<<unrollCount()<<endl);
 	    if (loops > unrollCount())
 		return cantUnroll(nodep, "too many iterations");
@@ -215,37 +178,81 @@ private:
 		return cantUnroll(nodep, "too many statements");
 	    }
 	}
-	//
-	// Now, make sure there's no assignment to this variable in the loop
-	m_varModeCheck = true;
-	m_varAssignHit = false;
-	m_ignoreIncp = incp;
-	precondsp->iterateAndNext(*this);
-	bodysp->iterateAndNext(*this);
-	incp->iterateAndNext(*this);
-	m_varModeCheck = false;
-	m_ignoreIncp = NULL;
-	if (m_varAssignHit) return cantUnroll(nodep, "genvar assigned *inside* loop");
-	//
 	// Finally, we can do it
-	forUnroller(nodep, initp, precondsp, incp, bodysp,
-		    constInitp->num(),
-		    cmpInstrp, constStopp->num(), cmpVarLhs,
-		    incInstrp, constIncp->num()); VL_DANGLING(nodep);
+	forUnroller(nodep, initAssp, condp, precondsp, incp, bodysp); VL_DANGLING(nodep);
 	// Cleanup
 	return true;
     }
 
+    bool canSimulate(AstNode *nodep) {
+	SimulateVisitor simvis;
+	AstNode* clone = nodep->cloneTree(true);
+	simvis.checkTree(clone);
+	return simvis.optimizable();
+    }
+
+    V3Number simulateTree( AstNode *nodep, const V3Number *loopValue, AstNode *dtypep) {
+	AstNode* clone = nodep->cloneTree(true);
+	if (!clone) {
+	    nodep->v3fatalSrc("Failed to clone tree");
+	}
+	if (loopValue) {
+	    m_varValuep = new AstConst (nodep->fileline (), *loopValue);
+	    // Iteration requires a back, so put under temporary node
+	    bool proceed = false;
+	    AstBegin *tempp = new AstBegin (nodep->fileline (), "[EditWrapper]", clone);
+	    m_varModeReplace = true;
+	    tempp->stmtsp ()->iterateAndNext (*this);
+	    m_varModeReplace = false;
+	    clone = tempp->stmtsp ()->unlinkFrBackWithNext ();
+	    tempp->deleteTree ();
+	    tempp = NULL;
+	    pushDeletep (m_varValuep); m_varValuep = NULL;
+	}
+	SimulateVisitor simvis;
+	simvis.mainParamEmulate (clone);
+	if (!simvis.optimizable ()) {
+	    nodep->v3fatalSrc("Unable to simulate");
+	    if (debug()>=9) nodep->dumpTree(cout,"- _simtree: ");
+	}
+	// Fetch the result
+	V3Number* res = simvis.fetchNumberNull (clone);
+	if (!res) nodep->v3fatalSrc("No number returned from simulation");
+	//Patch up datatype
+	if (dtypep) {
+	    AstConst newp (clone->fileline (), *res);
+	    newp.dtypeFrom (dtypep);
+	    return newp.num ();
+	}
+	return *res;
+    }
+
+    int countLoops(AstAssign *initp, AstNode *condp, AstNode *incp, int max) {
+	int loopCount = 0;
+	V3Number loopValue = simulateTree (initp->rhsp(), NULL, initp);
+	while (1) {
+	    V3Number res = simulateTree (condp, &loopValue, NULL);
+	    if (!res.isEqOne ())
+		break;
+
+	    loopCount++;
+	    //Run inc
+	    AstAssign *incpass = incp->castAssign();
+	    V3Number newLoopValue = simulateTree (incpass->rhsp(), &loopValue, incpass);
+	    loopValue.opAssign(newLoopValue);
+	    if (loopCount > max) {
+		return loopCount;
+	    }
+	}
+	return loopCount;
+    }
+
     void forUnroller(AstNode* nodep,
-		     AstNode* initp,
+		     AstAssign* initp,
+		     AstNode* condp,
 		     AstNode* precondsp,
-		     AstNode* incp, AstNode* bodysp,
-		     const V3Number& numInit,
-		     AstNodeBiop* cmpInstrp, const V3Number& numStop, bool cmpVarLhs,
-		     AstNodeBiop* incInstrp, const V3Number& numInc) {
-	UINFO(4, "   Unroll for var="<<numInit<<"; var<"<<numStop<<"; var+="<<numInc<<endl);
-	UINFO(6, "    cmpI "<<cmpInstrp<<endl);
-	UINFO(6, "    IncI "<<incInstrp<<endl);
+		     AstNode* incp, AstNode* bodysp) {
+	V3Number loopValue = simulateTree (initp->rhsp(), NULL, initp);
 	AstNode* stmtsp = NULL;
 	if (initp) {
 	    initp->unlinkFrBack();	// Always a single statement; nextp() may be nodep
@@ -269,26 +276,17 @@ private:
 	// Mark variable to disable some later warnings
 	m_forVarp->usedLoopIdx(true);
 
-	// If it's a While, then incp is already part of bodysp.
-	V3Number loopValue(nodep->fileline(), m_forVarp->width());  // May differ in size from numInitp
-	loopValue.opAssign(numInit);
-
 	AstNode* newbodysp = NULL;
 	++m_statLoops;
 	if (stmtsp) {
 	    int times = 0;
 	    while (1) {
 		UINFO(8,"      Looping "<<loopValue<<endl);
-		// if loopValue<valStop
-		V3Number contin (nodep->fileline(), 1);
-		if (cmpVarLhs) {
-		    cmpInstrp->numberOperate(contin, loopValue, numStop);
-		} else {
-		    cmpInstrp->numberOperate(contin, numStop, loopValue);
-		}
-		if (contin.isEqZero()) {
+		V3Number res = simulateTree(condp, &loopValue, NULL);
+		if (!res.isEqOne ()) {
 		    break;  // Done with the loop
 		} else {
+
 		    // Replace iterator values with constant.
 		    AstNode* oneloopp = stmtsp->cloneTree(true);
 
@@ -307,7 +305,7 @@ private:
 			string nname = m_beginName + "__BRA__" + index + "__KET__";
 			oneloopp = new AstBegin(oneloopp->fileline(),nname,oneloopp,true);
 		    }
-
+		    pushDeletep(m_varValuep); m_varValuep=NULL;
 		    if (newbodysp) newbodysp->addNext(oneloopp);
 		    else newbodysp = oneloopp;
 
@@ -318,11 +316,9 @@ private:
 		    }
 
 		    //loopValue += valInc
-		    V3Number newnum(nodep->fileline(), m_forVarp->width());  // Can't increment in-place
-		    incInstrp->numberOperate(newnum, loopValue, numInc);
-		    loopValue.opAssign(newnum);
-
-		    pushDeletep(m_varValuep); m_varValuep=NULL;
+		    AstAssign *incpass = incp->castAssign();
+		    V3Number newLoopValue = simulateTree(incpass->rhsp(), &loopValue, incpass);
+		    loopValue.opAssign(newLoopValue);
 		}
 	    }
 	}
