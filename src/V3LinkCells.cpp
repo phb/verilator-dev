@@ -342,25 +342,38 @@ private:
 	    }
 	}
 	if (nodep->modp()->castIface()) {
+		UINFO(1, "castIFace..." << endl);
 	    // Cell really is the parent's instantiation of an interface, not a normal module
 	    // Make sure we have a variable to refer to this cell, so can <ifacename>.<innermember>
 	    // in the same way that a child does.  Rename though to avoid conflict with cell.
 	    // This is quite similar to how classes work; when unpacked classes are better supported
 	    // may remap interfaces to be more like a class.
 	    if (!nodep->hasIfaceVar()) {
-		if (nodep->rangep()) {
-		} else {
-		    string varName = nodep->name() + "__Viftop";  // V3LinkDot looks for this naming
-		    AstIfaceRefDType *idtypep = new AstIfaceRefDType(nodep->fileline(), nodep->name(),
-								     nodep->modp()->name());
-		    idtypep->cellp(nodep);  // Only set when real parent cell known
-		    idtypep->ifacep(NULL);  // cellp overrides
-		    AstVar *varp = new AstVar(nodep->fileline(), AstVarType::IFACEREF, varName,
-					      VFlagChildDType(), idtypep);
-		    varp->isIfaceParent(true);
-		    nodep->addNextHere(varp);
-		    nodep->hasIfaceVar(true);
-		}
+			if (nodep->rangep()) {
+				string varName = nodep->name() + "__Viftop";  // V3LinkDot looks for this naming
+				AstIfaceRefDType *idtypep = new AstIfaceRefDType(nodep->fileline(), nodep->name(),
+																 nodep->modp()->name());
+				//idtypep->cellp(nodep);  // Only set when real parent cell known
+				idtypep->ifacep(NULL);  // cellp overrides
+
+				AstNodeArrayDType *newp = new AstUnpackArrayDType(nodep->fileline(),VFlagChildDType(), idtypep, nodep->rangep()->cloneTree(true));
+				AstVar *varp = new AstVar(nodep->fileline(), AstVarType::IFACEREF, varName,
+										  VFlagChildDType(), newp);
+				varp->isIfaceParent(true);
+				nodep->addNextHere(varp);
+				nodep->hasIfaceVar(true);
+			} else {
+				string varName = nodep->name() + "__Viftop";  // V3LinkDot looks for this naming
+				AstIfaceRefDType *idtypep = new AstIfaceRefDType(nodep->fileline(), nodep->name(),
+																 nodep->modp()->name());
+				idtypep->cellp(nodep);  // Only set when real parent cell known
+				idtypep->ifacep(NULL);  // cellp overrides
+				AstVar *varp = new AstVar(nodep->fileline(), AstVarType::IFACEREF, varName,
+										  VFlagChildDType(), idtypep);
+				varp->isIfaceParent(true);
+				nodep->addNextHere(varp);
+				nodep->hasIfaceVar(true);
+			}
 	    }
 	}
 	if (nodep->modp()) {

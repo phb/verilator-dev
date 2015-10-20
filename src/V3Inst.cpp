@@ -169,6 +169,10 @@ private:
 	if (nodep->rangep()) {
 	    m_cellRangep = nodep->rangep();
 	    UINFO(4,"  CELL   "<<nodep<<endl);
+
+		AstVar *varIface = nodep->nextp()->castVar();
+		bool isIface = varIface && varIface->dtypep()->castUnpackArrayDType();
+
 	    // Make all of the required clones
 	    m_instLsb = m_cellRangep->lsbConst();
 	    for (m_instNum = m_instLsb; m_instNum<=m_cellRangep->msbConst(); m_instNum++) {
@@ -181,16 +185,36 @@ private:
 		// The spec says we add [x], but that won't work in C...
 		newp->name(newp->name()+"__BRA__"+cvtToStr(m_instNum)+"__KET__");
 		newp->origName(newp->origName()+"__BRA__"+cvtToStr(m_instNum)+"__KET__");
+		// If this AstCell is actually an interface instantiation, let's ensure we also clone
+		// the IfaceRef.
+		if (isIface) {
+			AstUnpackArrayDType *arrdtype = varIface->dtypep()->castUnpackArrayDType();
+			AstVar* varNewp = varIface->cloneTree(false);
+			AstIfaceRefDType *ifaceRefp = arrdtype->subDTypep()->castIfaceRefDType ();
+			ifaceRefp->cellp (newp);
+			ifaceRefp->cellName (newp->name ());
+			varNewp->name (varNewp->name () + "__BRA__" + cvtToStr (m_instNum) + "__KET__");
+			varNewp->origName (varNewp->origName () + "__BRA__" + cvtToStr (m_instNum) + "__KET__");
+			varNewp->dtypep(arrdtype->subDTypep());
+			newp->addNextHere (varNewp);
+			if (debug()==9) { varNewp->dumpTree(cout, "newintf: "); cout << endl; }
+		}
 		// Fixup pins
-		newp->pinsp()->iterateAndNext(*this);
+			newp->pinsp()->iterateAndNext(*this);
 		if (debug()==9) { newp->dumpTree(cout,"newcell: "); cout<<endl; }
 	    }
 
 	    // Done.  Delete original
+	    // Note, we don't delete the original AstIfaceRefDType var as it may be in use (??)
 	    m_cellRangep=NULL;
-	    nodep->unlinkFrBack(); pushDeletep(nodep); VL_DANGLING(nodep);
+		if (isIface) {
+			varIface->unlinkFrBack()->deleteTree(); VL_DANGLING(varIface);
+		}
+		nodep->unlinkFrBack(); pushDeletep(nodep); VL_DANGLING(nodep);
 	}
+		nodep->iterateChildren(*this);
     }
+
     virtual void visit(AstPin* nodep, AstNUser*) {
 	// Any non-direct pins need reconnection with a part-select
 	if (!nodep->exprp()) return; // No-connect
@@ -217,6 +241,24 @@ private:
 	    } else {
 		nodep->v3fatalSrc("Width mismatch; V3Width should have errored out.");
 	    }
+	} else if(AstArraySel *arrselp = nodep->exprp()->castArraySel()) {
+		if (AstUnpackArrayDType *arrp = arrselp->lhsp()->dtypep()->castUnpackArrayDType()) {
+			if (!arrp->subDTypep()->castIfaceRefDType())
+				return;
+			
+			AstConst *constp = arrselp->rhsp()->castConst();
+			if (!constp) {
+				nodep->v3error("Unsupported: Non-constant index when passing interface to module");
+			}
+			string index = AstNode::encodeNumber(constp->toSInt());
+			AstVarRef *varrefp = arrselp->lhsp()->castVarRef();
+
+			AstVarRef *newp = new AstVarRef(nodep->fileline(),varrefp->name () + "__BRA__" + index  + "__KET__", false);
+			newp->dtypep(arrp->subDTypep());
+
+			arrselp->addNextHere (newp);
+			arrselp->unlinkFrBack()->deleteTree(); VL_DANGLING(arrselp);
+		}
 	}
     }
 

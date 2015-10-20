@@ -489,6 +489,8 @@ void ParamVisitor::visitCell(AstCell* nodep) {
 	    }
 	}
 	IfaceRefRefs ifaceRefRefs;
+		/* FIXME: Not sure how to handle this at the moment */
+		/*
 	for (AstPin* pinp = nodep->pinsp(); pinp; pinp=pinp->nextp()->castPin()) {
 	    AstVar* modvarp = pinp->modVarp();
 	    if (modvarp->isIfaceRef()) {
@@ -512,6 +514,7 @@ void ParamVisitor::visitCell(AstCell* nodep) {
 		}
 	    }
 	}
+		 */
 
 	if (!any_overrides) {
 	    UINFO(8,"Cell parameters all match original values, skipping expansion.\n");

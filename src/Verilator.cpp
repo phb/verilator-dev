@@ -223,6 +223,8 @@ void process () {
     if (!v3Global.opt.xmlOnly()) {
 	// Remove cell arrays (must be between V3Width and scoping)
 	V3Inst::dearrayAll(v3Global.rootp());
+		//Cleanup as we may have expanded interface array references
+	V3LinkDot::linkDotArrayed(v3Global.rootp());
     }
 
     if (!v3Global.opt.xmlOnly()) {
