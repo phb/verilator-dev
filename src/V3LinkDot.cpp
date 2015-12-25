@@ -1207,9 +1207,11 @@ class LinkDotScopeVisitor : public AstNVisitor {
 	}
 	VSymEnt* lhsSymp;
 	{
-	    AstVarXRef* refp = nodep->lhsp()->castVarXRef();
-	    if (!refp) nodep->v3fatalSrc("Unsupported: Non VarXRef attached to interface pin");
-	    string scopename = refp->dotted()+"."+refp->name();
+	    AstVarXRef* xrefp = nodep->lhsp()->castVarXRef();
+	    AstVarRef* refp = nodep->lhsp()->castVarRef();
+
+	    if (!refp && !xrefp) nodep->v3fatalSrc("Unsupported: Non Var(X)Ref attached to interface pin");
+	    string scopename = refp ? refp->varp()->name() : xrefp->dotted()+"."+xrefp->name();
 	    string baddot; VSymEnt* okSymp;
 	    VSymEnt* symp = m_statep->findDotted(m_modSymp, scopename, baddot, okSymp);
 	    if (!symp) nodep->v3fatalSrc("No symbol for interface alias lhs");
@@ -1849,6 +1851,16 @@ private:
 		if (!nodep->varp()) {
 		    nodep->v3error("Can't find definition of '"<<baddot<<"' in dotted signal: "<<nodep->dotted()+"."+nodep->prettyName());
 		    okSymp->cellErrorScopes(nodep);
+		}
+		// V3Inst may have expanded arrays of interfaces to AstVarXRef's even though they are in the same module
+		// detect this and convert to normal VarRefs
+		if (!m_statep->forPrearray() && !m_statep->forScopeCreation()) {
+		    if (nodep->dtypep()->castIfaceRefDType()) {
+			AstVarRef *newref = new AstVarRef(nodep->fileline(), nodep->varp(), nodep->lvalue());
+			nodep->replaceWith(newref);
+			nodep->deleteTree();
+			VL_DANGLING(nodep);
+		    }
 		}
 	    } else {
 		string baddot;
