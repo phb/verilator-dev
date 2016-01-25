@@ -477,7 +477,7 @@ void process () {
 	// Constant folding of substitutions
 	V3Const::constifyCpp(v3Global.rootp());
 
-	V3Dead::deadifyAll(v3Global.rootp());
+	V3Dead::deadifyAllExtra(v3Global.rootp());
     }
 
     if (!v3Global.opt.lintOnly()

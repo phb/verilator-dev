@@ -88,6 +88,7 @@ private:
     bool			m_elimUserVars;	// Allow removal of user's vars
     bool			m_elimDTypes;	// Allow removal of DTypes
     bool			m_sideEffect;	// Side effects discovered in assign RHS
+    bool 			m_elimPackages;
 
     // METHODS
     static int debug() {
@@ -98,9 +99,13 @@ private:
 
     void checkAll(AstNode* nodep) {
 	if (nodep != nodep->dtypep()) {  // NodeDTypes reference themselves
+	    UINFO(0," Node " << nodep << " referencing " << nodep->dtypep() << endl);
 	    if (AstNode* subnodep = nodep->dtypep()) subnodep->user1Inc();
 	}
-	if (AstNode* subnodep = nodep->getChildDTypep()) subnodep->user1Inc();
+	if (AstNode* subnodep = nodep->getChildDTypep()) {
+	    UINFO(0," Node " << nodep << " referencing childtype " << subnodep << endl);
+	    subnodep->user1Inc();
+	}
     }
     void checkDType(AstNodeDType* nodep) {
 	if (!nodep->generic()  // Don't remove generic types
@@ -109,7 +114,11 @@ private:
 	    ) {
 	    m_varEtcsp.push_back(nodep);
 	}
-	if (AstNode* subnodep = nodep->virtRefDTypep()) subnodep->user1Inc();
+	if (AstNode* subnodep = nodep->virtRefDTypep()) {
+	    UINFO(0, "Node: " << nodep << " is dtype and referencing " << subnodep << endl);
+	    subnodep->user1Inc();
+
+	}
     }
 
     // VISITORS
@@ -119,9 +128,27 @@ private:
 	checkAll(nodep);
 	m_modp = NULL;
     }
+    virtual void visit(AstScope* nodep, AstNUser*) {
+	nodep->iterateChildren(*this);
+	checkAll(nodep);
+	UINFO(0, "AstScope:: " << nodep << endl);
+	UINFO(0, "VARS: " << nodep->varsp() << endl);
+
+	if (m_elimPackages && !nodep->isTop() && nodep->varsp() == NULL) {
+	    UINFO(0, "Removed scope" << nodep << endl);
+	    nodep->unlinkFrBack()->deleteTree();
+	}
+    }
+
     virtual void visit(AstCell* nodep, AstNUser*) {
 	nodep->iterateChildren(*this);
 	checkAll(nodep);
+	if (m_elimPackages && nodep->modp()->castPackage()) {
+	    UINFO(0, "Removed cell" << endl);
+	    nodep->unlinkFrBack()->deleteTree();
+	    return;
+	}
+	UINFO(0, "Bumping package refs for cell::: " << nodep << " for " << nodep->modp() << endl);
 	nodep->modp()->user1Inc();
     }
     virtual void visit(AstNodeVarRef* nodep, AstNUser*) {
@@ -134,14 +161,16 @@ private:
 	if (nodep->varp()) {
 	    nodep->varp()->user1Inc();
 	}
-	if (nodep->packagep()) {
+	if (!m_elimPackages && nodep->packagep()) {
+	    UINFO(0, "Bumping package refs::: " << nodep << " for " << nodep->packagep() << endl);
 	    nodep->packagep()->user1Inc();
 	}
     }
     virtual void visit(AstNodeFTaskRef* nodep, AstNUser*) {
 	nodep->iterateChildren(*this);
 	checkAll(nodep);
-	if (nodep->packagep()) {
+	if (!m_elimPackages && nodep->packagep()) {
+	    UINFO(0, "Bumping package refs::: " << nodep << " for " << nodep->packagep() << endl);
 	    nodep->packagep()->user1Inc();
 	}
     }
@@ -149,7 +178,8 @@ private:
 	nodep->iterateChildren(*this);
 	checkDType(nodep);
 	checkAll(nodep);
-	if (nodep->packagep()) {
+	if (!m_elimPackages && nodep->packagep()) {
+	    UINFO(0, "Bumping package refs::: " << nodep << " for " << nodep->packagep() << endl);
 	    nodep->packagep()->user1Inc();
 	}
     }
@@ -161,7 +191,8 @@ private:
     virtual void visit(AstEnumItemRef* nodep, AstNUser*) {
 	nodep->iterateChildren(*this);
 	checkAll(nodep);
-	if (nodep->packagep()) {
+	if (!m_elimPackages && nodep->packagep()) {
+	    UINFO(0, "Bumping package refs::: " << nodep << " for " << nodep->packagep() << endl);
 	    nodep->packagep()->user1Inc();
 	}
     }
@@ -223,6 +254,7 @@ private:
 	    AstNodeModule* nextmodp;
 	    for (AstNodeModule* modp = v3Global.rootp()->modulesp(); modp; modp=nextmodp) {
 		nextmodp = modp->nextp()->castNodeModule();
+		UINFO(0, "Looking to kill module: " << modp << endl);
 		if (modp->level()>2	&& modp->user1()==0 && !modp->internal()) {
 		    // > 2 because L1 is the wrapper, L2 is the top user module
 		    UINFO(4,"  Dead module "<<modp<<endl);
@@ -242,6 +274,7 @@ private:
 		    || (nodep->isParam() && !nodep->isTrace())
 		    || m_elimUserVars));  // Post-Trace can kill most anything
     }
+
     void deadCheckVar() {
 	// Delete any unused varscopes
 	for (vector<AstVarScope*>::iterator it = m_vscsp.begin(); it!=m_vscsp.end(); ++it) {
@@ -267,8 +300,9 @@ private:
 
 public:
     // CONSTRUCTORS
-    DeadVisitor(AstNetlist* nodep, bool elimUserVars, bool elimDTypes) {
+    DeadVisitor(AstNetlist* nodep, bool elimUserVars, bool elimDTypes, bool elimPackages) {
 	m_modp = NULL;
+	m_elimPackages = elimPackages;
 	m_elimUserVars = elimUserVars;
 	m_elimDTypes = elimDTypes;
 	m_sideEffect = false;
@@ -290,16 +324,22 @@ public:
 
 void V3Dead::deadifyModules(AstNetlist* nodep) {
     UINFO(2,__FUNCTION__<<": "<<endl);
-    DeadVisitor visitor (nodep, false, false);
+    DeadVisitor visitor (nodep, false, false, false);
     V3Global::dumpCheckGlobalTree("deadModules.tree", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 6);
 }
 void V3Dead::deadifyDTypes(AstNetlist* nodep) {
     UINFO(2,__FUNCTION__<<": "<<endl);
-    DeadVisitor visitor (nodep, false, true);
+    DeadVisitor visitor (nodep, false, true, false);
     V3Global::dumpCheckGlobalTree("deadDType.tree", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
 }
 void V3Dead::deadifyAll(AstNetlist* nodep) {
     UINFO(2,__FUNCTION__<<": "<<endl);
-    DeadVisitor visitor (nodep, true, true);
+    DeadVisitor visitor (nodep, true, true, false);
+    V3Global::dumpCheckGlobalTree("deadAll.tree", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
+}
+
+void V3Dead::deadifyAllExtra(AstNetlist* nodep) {
+    UINFO(2,__FUNCTION__<<": "<<endl);
+    DeadVisitor visitor (nodep, true, true, true);
     V3Global::dumpCheckGlobalTree("deadAll.tree", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
 }

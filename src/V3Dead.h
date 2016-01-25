@@ -35,6 +35,7 @@ public:
     static void deadifyDTypes(AstNetlist* nodep);
     // Everything that's possible
     static void deadifyAll(AstNetlist* nodep);
+    static void deadifyAllExtra(AstNetlist* nodep);
 };
 
 #endif // Guard
