@@ -770,7 +770,7 @@ class EmitCImp : EmitCStmts {
 	}
     }
 
-    V3OutCFile* newOutCFile(AstNodeModule* modp, bool slow, bool source, int filenum=0) {
+    V3OutCFile* newOutCFile(AstNodeModule* modp, bool slow, bool source, int filenum, bool indent) {
 	string filenameNoExt = v3Global.opt.makeDir()+"/"+ modClassName(modp);
 	if (filenum) filenameNoExt += "__"+cvtToStr(filenum);
 	filenameNoExt += (slow ? "__Slow":"");
@@ -795,7 +795,11 @@ class EmitCImp : EmitCStmts {
 	else {
 	    string filename = filenameNoExt+(source?".cpp":".h");
 	    newCFile(filename, slow, source);
-	    ofp = new V3OutCFile  (filename);
+	    if (!indent) {
+		ofp = new V3OutCFileNoIndent(filename);
+	    } else {
+		ofp = new V3OutCFile(filename);
+	    }
 	}
 
 	ofp->putsHeader();
@@ -2108,13 +2112,14 @@ void EmitCImp::main(AstNodeModule* modp, bool slow, bool fast) {
     m_modp = modp;
     m_slow = slow;
     m_fast = fast;
+    bool indent = false;
 
     if (debug()>=5) {
 	UINFO(0,"  Emitting "<<modClassName(modp)<<endl);
     }
 
     if (optSystemPerl()) {
-	m_ofp = newOutCFile(modp, !m_fast, true);
+	m_ofp = newOutCFile(modp, !m_fast, true, 0, indent);
 
 	if (m_fast) {
 	    puts("#sp interface\n");
@@ -2123,21 +2128,21 @@ void EmitCImp::main(AstNodeModule* modp, bool slow, bool fast) {
     }
     else if (optSystemC()) {
 	if (m_fast) {
-	    m_ofp = newOutCFile (modp, !m_fast, false/*source*/);
+	    m_ofp = newOutCFile (modp, !m_fast, false/*source*/, 0, indent);
 	    emitInt (modp);
 	    delete m_ofp; m_ofp=NULL;
 	}
 
-	m_ofp = newOutCFile (modp, !m_fast, true/*source*/);
+	m_ofp = newOutCFile (modp, !m_fast, true/*source*/, 0, indent);
     }
     else {
 	if (m_fast) {
-	    m_ofp = newOutCFile (modp, !m_fast, false/*source*/);
+	    m_ofp = newOutCFile (modp, !m_fast, false/*source*/, 0, indent);
 	    emitInt (modp);
 	    delete m_ofp; m_ofp=NULL;
 	}
 
-	m_ofp = newOutCFile (modp, !m_fast, true/*source*/);
+	m_ofp = newOutCFile (modp, !m_fast, true/*source*/, 0, indent);
     }
 
     emitImp (modp);
@@ -2148,7 +2153,7 @@ void EmitCImp::main(AstNodeModule* modp, bool slow, bool fast) {
 		// Close old file
 		delete m_ofp; m_ofp=NULL;
 		// Open a new file
-		m_ofp = newOutCFile (modp, !m_fast, true/*source*/, splitFilenumInc());
+		m_ofp = newOutCFile (modp, !m_fast, true/*source*/, splitFilenumInc(), indent);
 		emitImp (modp);
 	    }
 	    splitSizeInc(10);  // Even blank functions get a file with a low csplit

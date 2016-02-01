@@ -153,6 +153,7 @@ private:
 	    nodep->packagep()->user1Inc();
 	}
     }
+
     virtual void visit(AstNodeDType* nodep, AstNUser*) {
 	nodep->iterateChildren(*this);
 	checkDType(nodep);

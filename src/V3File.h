@@ -23,6 +23,7 @@
 #include "config_build.h"
 #include "verilatedos.h"
 #include "V3Error.h"
+#include "V3Number.h"
 #include <cstdio>
 #include <stack>
 #include <set>
@@ -108,6 +109,7 @@ public:
 	LA_VERILOG = 1,
 	LA_MK = 2,
 	LA_XML = 3,
+	LA_NONE = 4,
     };
 
 private:
@@ -169,6 +171,7 @@ public:
 
 class V3OutFile : public V3OutFormatter {
     // MEMBERS
+protected:
     FILE*	m_fp;
 public:
     V3OutFile(const string& filename, V3OutFormatter::Language lang);
@@ -205,6 +208,8 @@ public:
 	    m_private = 2;
 	}
     }
+    virtual void puts(const char* strg) { fputs(strg, m_fp); }
+    virtual void puts(const string& strg) { fputs(strg.c_str(), m_fp);}
 };
 
 class V3OutScFile : public V3OutCFile {
@@ -255,4 +260,28 @@ public:
     void puts(const string& strg) { putsNoTracking(strg); }
 };
 
+class V3OutCFileNoIndent : public V3OutCFile {
+public:
+    explicit V3OutCFileNoIndent (const string& filename) : V3OutCFile(filename) {}
+    virtual ~V3OutCFileNoIndent () {}
+    void printf(const char* fmt...) VL_ATTR_PRINTF(2);
+    void putsNoTracking(const string& strg) {
+	puts(strg);
+    };
+    void putsQuoted(const string& strg) {
+	// Quote \ and " for use inside C programs
+	// Don't use to quote a filename for #include - #include doesn't \ escape.
+	fputc('"', m_fp);
+	string quoted = V3Number::quoteNameControls(strg);
+	puts(quoted);
+	fputc('"', m_fp);
+    }
+    void putBreak() {};
+    void putBreakExpr() {};
+    void putAlign(bool isstatic/*AlignClass*/, int align, int size=0/*=align*/, const string& prefix=""); // Declare a variable, with natural alignment
+    void putbs(const char* strg) { puts(strg); }
+    void putbs(const string& strg) { puts(strg); }
+    void puts(const char* strg) { fputs(strg, m_fp); }
+    void puts(const string& strg) { fputs(strg.c_str(), m_fp);}
+};
 #endif // Guard
