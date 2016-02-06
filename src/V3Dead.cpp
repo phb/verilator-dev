@@ -193,6 +193,10 @@ private:
     }
     virtual void visit(AstTypedef* nodep, AstNUser*) {
 	nodep->iterateChildren(*this);
+	if (m_elimCells && !nodep->attrPublic()) {
+	    nodep->unlinkFrBack()->deleteTree();
+	    return;
+	}
 	checkAll(nodep);
 	// Don't let packages with only public variables disappear
 	// Normal modules may disappear, e.g. if they are parameterized then removed
