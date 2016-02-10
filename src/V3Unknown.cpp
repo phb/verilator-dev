@@ -142,64 +142,86 @@ private:
            width bytes, but patch up __Vlvbound value to write back the correct bytes
         */
         if (partial_condp) {
-        AstSel *selp = prep->castSel();
+	    //Two cases, either we're trying to write below zero, or writing above max, let's deal with
+	    // the cases seperately.
+	    AstSel *selp = prep->castSel();
 	    int maxmsb = selp->fromp()->dtypep()->width();
 	    V3Number maxmsbnum (fl, selp->lsbp()->width()+1, maxmsb);
-        AstNode *lhs = new AstSel(fl, 
-                selp->fromp()->cloneTree(false),
-                new AstSub(fl, new AstConst(fl, maxmsbnum), selp->widthp()->cloneTree(false)),
-                selp->widthp()->cloneTree(false)
-                );
-        int width = lhs->dtypep()->width();
-        V3Number mask (fl, width);
-        mask.setAllBits1();
-        //Calculate partial offset
-        // lsbp + width - maxmsbnum
-        AstNode *offset = new AstSub(fl,
-                            new AstAdd(fl,
-			    new AstExtendS(fl, selp->lsbp()->cloneTree(false),32),
-                                selp->widthp()->cloneTree(false)),
-                            new AstConst(fl, maxmsbnum));
+	    int width = selp->widthp()->dtypep()->width();
+	    V3Number mask (fl, width);
+	    mask.setAllBits1();
 
-        AstNode *isReversedShift = new AstGteS(fl, new AstConst(fl, 0), offset->cloneTree(false));
-        AstNode *lhs_shift = new AstCond(fl, isReversedShift->cloneTree(false),
-                    new AstShiftL(fl,
-                        new AstConst(fl, mask),
-                        new AstNegate(fl, offset->cloneTree(false)),
-                        width
-                        ),
-                    new AstShiftR(fl,
-                        new AstConst(fl, mask),
-                        offset->cloneTree(false),
-                        width
-                        ));
-        AstNode *rhs_shift =new AstCond(fl, isReversedShift->cloneTree(false), 
-                    new AstShiftR(fl,
-                        new AstVarRef(fl, varp, false),
-                        new AstNegate(fl, offset->cloneTree(false)),
-                        width
-                        ),
-                    new AstShiftL(fl,
-                        new AstVarRef(fl, varp, false),
-                        offset->cloneTree(false),
-                        width));
+	    AstNode *isReversedShift = new AstGteS(fl, new AstConst(fl, 0), selp->lsbp()->cloneTree(false));
 
-        AstNode *rhs = new AstOr(fl, 
-                new AstAnd(fl,
-                    lhs->cloneTree(false),
-                    lhs_shift),
-                    rhs_shift);
-        AstNode* partial_ifp = (needDly
-				       ? ((new AstAssignDly(fl, lhs,
-							    rhs))->castNode())
-				       : ((new AstAssign   (fl, lhs,
-							    rhs))->castNode()));
-                range_elsep = new AstIf(fl, partial_condp, partial_ifp, NULL);
+	    //<0
+	    // Adjust write to be 0 : width
+	    AstNode *lhs_reversed = new AstSel(fl,
+					       selp->fromp()->cloneTree(false),
+					       new AstConst(fl, 0),
+					       selp->widthp()->cloneTree(false)
+	    );
+	    // The offset is (index below zero) + width
+	    AstNode *reversed_offset = new AstAdd(fl,new AstExtendS(fl, selp->lsbp()->cloneTree(false),32), selp->widthp()->cloneTree(false));
+
+	    AstNode *lhs_reversed_shift = new AstShiftL(fl,
+							   new AstConst(fl, mask),
+							   reversed_offset->cloneTree(false),
+							   width
+					     );
+	    AstNode *rhs_reversed_shift = new AstShiftR(fl,
+							  new AstVarRef(fl, varp, false),
+							  reversed_offset->cloneTree(false),
+							  width);
+	    AstNode *rhs_reversed = new AstOr(fl,
+					    new AstAnd(fl,
+						       lhs_reversed->cloneTree(false),
+						       lhs_reversed_shift),
+					    rhs_reversed_shift);
+	    AstNode* reversed_stmts = (needDly
+				     ? ((new AstAssignDly(fl, lhs_reversed,
+							  rhs_reversed))->castNode())
+				     : ((new AstAssign   (fl, lhs_reversed,
+							  rhs_reversed))->castNode()));
+
+	    // > max
+	    // Adjust the lhs so be in bounds, max:max-width.
+	    AstNode *lhs_normal = new AstSel(fl,
+					     selp->fromp()->cloneTree(false),
+					     new AstSub(fl, new AstConst(fl, maxmsbnum), selp->widthp()->cloneTree(false)),
+					     selp->widthp()->cloneTree(false)
+	    );
+
+	    // lsbp + width - maxmsbnum
+	    AstNode *offset = new AstSub(fl,
+					 new AstAdd(fl,
+						    new AstExtendS(fl, selp->lsbp()->cloneTree(false),32),
+						    selp->widthp()->cloneTree(false)),
+					 new AstConst(fl, maxmsbnum));
+	    AstNode *lhs_shift = new AstShiftR(fl, new AstConst(fl, mask),
+							   offset->cloneTree(false));
+
+	    AstNode *rhs_shift = new AstShiftL(fl, new AstVarRef(fl, varp, false),
+							  offset->cloneTree(false));
+	    AstNode *rhs_normal = new AstOr(fl,
+				     new AstAnd(fl,
+						lhs_normal->cloneTree(false),
+						lhs_shift),
+				     		rhs_shift);
+	    AstNode* normal_stmts = (needDly
+				    ? ((new AstAssignDly(fl, lhs_normal,
+							 rhs_normal))->castNode())
+				    : ((new AstAssign   (fl, lhs_normal,
+							 rhs_normal))->castNode()));
+
+	    ////
+	    AstNode *partial_ifp = new AstIf(fl, isReversedShift, reversed_stmts, normal_stmts);
+	    range_elsep = new AstIf(fl, partial_condp, partial_ifp, NULL);
         }
         AstIf* newifp = new AstIf(fl, condp, range_ifp,range_elsep);
 	newifp->branchPred(AstBranchPred::BP_LIKELY);
+	if (debug()>=9) newifp->dumpTree(cout,"     _boundIfp_preopt: ");
 	AstNode* newp = V3Const::constifyEdit(newifp);
-	    if (debug()>=9) newp->dumpTree(cout,"     _new: ");
+	if (debug()>=9) newp->dumpTree(cout,"     __boundIfp_postopt: ");
 	    abovep->addNextStmt(newp,abovep);
 	    prep->user2p(newp);  // Save so we may LogAnd it next time
 	}
@@ -415,11 +437,11 @@ private:
 
         // if selected < 0, then
         // if maxmsb >= selected + width
-        // else 
+        // else
         // if maxmsb >= selected
         // If maxmsb >= selected
         // and we're not already fully bound
-       
+
         // and and we're not fully in bound, we're partially in bound
 	    AstNode* partial_condp =new AstCond(nodep->fileline(),
                      new AstGteS (nodep->fileline(),
@@ -437,12 +459,10 @@ private:
 
 	    // See if the condition is constant true (e.g. always in bound due to constant select)
 	    // Note below has null backp(); the Edit function knows how to deal with that.
-	    //condp->dumpTree(cout,"        _new: ");
-	    UINFO(5, "Constify condp" << endl);
 	    condp = V3Const::constifyEdit(condp);
-	    UINFO(5, "Constify partial_condp" << endl);
+	    if (debug()>=9) condp->dumpTree(cout,"        _condp: ");
 	    partial_condp = V3Const::constifyEdit(partial_condp);
-	    //condp->dumpTree(cout,"        _newer: ");
+	    if (debug()>=9) partial_condp->dumpTree(cout,"        _part_condp: ");
 	    if (condp->isOne()) {
 		// We don't need to add a conditional; we know the existing expression is ok
 		condp->deleteTree();
