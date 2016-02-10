@@ -569,11 +569,12 @@ private:
 	    } else {
 		//nodep->v3fatalSrc("Should have been declRanged in V3WidthSel");
 	    }
-	    int selwidth = V3Number::log2b(frommsb+1-1)+1+1;	// Width to address a bit + 1 for sign
+	    //Warn about too small width
+	    int selwidth = V3Number::log2b(frommsb+1-1)+1;	// Width to address a bit
 	    AstNodeDType* selwidthDTypep = nodep->findLogicDType(selwidth,selwidth,nodep->lsbp()->dtypep()->numeric());
 	    nodep->fromp()->iterateAndNext(*this,WidthVP(SELF,FINAL).p());
 	    nodep->lsbp()->iterateAndNext(*this,WidthVP(SELF,FINAL).p());
-	    if (0 && widthBad(nodep->lsbp(),selwidthDTypep)
+	    if (widthBad(nodep->lsbp(),selwidthDTypep)
 		&& nodep->lsbp()->width()!=32) {
 		if (!nodep->fileline()->warnIsOff(V3ErrorCode::WIDTH)) {
 		    nodep->v3warn(WIDTH,"Bit extraction of var["<<(frommsb/elw)<<":"<<(fromlsb/elw)<<"] requires "
@@ -585,6 +586,7 @@ private:
 		    UINFO(1,"    Related node: "<<nodep<<endl);
 		}
 	    }
+	    selwidthDTypep = nodep->findLogicDType(32,32,nodep->lsbp()->dtypep()->numeric());
 	    if (nodep->lsbp()->castConst() && nodep->msbConst() > frommsb) {
 		// See also warning in V3Const
 		// We need to check here, because the widthCheckSized may silently

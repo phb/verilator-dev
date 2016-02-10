@@ -26,10 +26,13 @@ module t (/*AUTOARG*/
    // Must take LSBs into account in bit extract widths.
    wire [15:14] sixt = 2'b10; // surefire lint_off_line ASWCBB
    wire [16:14] sixt2 = 3'b110; // surefire lint_off_line ASWCBB
+   // I have no idea what this is supposed to test
+   // verilator lint_off SELRANGE
    wire [3:0] 	sixfrom = 13;
    wire [4:0] 	sixfrom2 = 16;
    wire 	sixtext = sixt[sixfrom];
    wire 	sixtext2 = sixt2[sixfrom2];
+   // verilator lint_on SELRANGE
 
    // Non-power of 2 memory overwriting checks
    reg [2:0] 	np2_mem   [5:0] /*verilator public*/;

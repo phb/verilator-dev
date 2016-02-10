@@ -18,7 +18,7 @@ module t (clk);
       if (mi[1 -: 2] !== 2'b01) $stop;
 `ifdef VERILATOR
       // verilator lint_off SELRANGE
-      if (mi[-1] !== 1'bx && mi[-1] !== 1'b0) $stop;
+      if (mi[-1] !== 1'bx && 1'b0) $stop;
       if (mi[0 -: 2] !== 2'b1x && 1'b0) $stop;
       if (mi[-1 -: 2] !== 2'bxx && 1'b0) $stop;
       // verilator lint_on SELRANGE

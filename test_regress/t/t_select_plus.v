@@ -22,8 +22,12 @@ module t (/*AUTOARG*/
       nibblep = from[bitn +: 4];
       nibblem = from[bitn -: 4];
       to = from;
+      $display("cyc[3:0]: %d", cyc[3:0]);	
+      $display("to: %x", to);
       to[bitn +: 4] = cyc[3:0];
+      $display("to: %x", to);
       to[bitn -: 4] = cyc[3:0];
+      $display("to: %x", to);
    end
 
    always @ (posedge clk) begin

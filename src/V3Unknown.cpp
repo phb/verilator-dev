@@ -196,8 +196,9 @@ private:
 							    rhs))->castNode()));
                 range_elsep = new AstIf(fl, partial_condp, partial_ifp, NULL);
         }
-        AstIf* newp = new AstIf(fl, condp, range_ifp,range_elsep);
-        newp->branchPred(AstBranchPred::BP_LIKELY);
+        AstIf* newifp = new AstIf(fl, condp, range_ifp,range_elsep);
+	newifp->branchPred(AstBranchPred::BP_LIKELY);
+	AstNode* newp = V3Const::constifyEdit(newifp);
 	    if (debug()>=9) newp->dumpTree(cout,"     _new: ");
 	    abovep->addNextStmt(newp,abovep);
 	    prep->user2p(newp);  // Save so we may LogAnd it next time
@@ -421,10 +422,11 @@ private:
        
         // and and we're not fully in bound, we're partially in bound
 	    AstNode* partial_condp =new AstCond(nodep->fileline(),
-                     new AstGteS (nodep->fileline(), new AstConst(nodep->fileline(), 0),
+                     new AstGteS (nodep->fileline(),
+			 new AstConst(nodep->fileline(), 0),
                          nodep->lsbp()->cloneTree(false)),
                      new AstGteS (nodep->fileline(),
-					     new AstConst(nodep->fileline(), maxmsbnum),
+			 new AstConst(nodep->fileline(), maxmsbnum),
                          new AstAdd(nodep->fileline(),
                              new AstExtendS(nodep->fileline(), nodep->lsbp()->cloneTree(false), 32),
                              nodep->widthp()->cloneTree(false)
@@ -436,7 +438,10 @@ private:
 	    // See if the condition is constant true (e.g. always in bound due to constant select)
 	    // Note below has null backp(); the Edit function knows how to deal with that.
 	    //condp->dumpTree(cout,"        _new: ");
+	    UINFO(5, "Constify condp" << endl);
 	    condp = V3Const::constifyEdit(condp);
+	    UINFO(5, "Constify partial_condp" << endl);
+	    partial_condp = V3Const::constifyEdit(partial_condp);
 	    //condp->dumpTree(cout,"        _newer: ");
 	    if (condp->isOne()) {
 		// We don't need to add a conditional; we know the existing expression is ok
