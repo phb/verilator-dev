@@ -1291,7 +1291,7 @@ V3Number& V3Number::opAdd (const V3Number& lhs, const V3Number& rhs) {
 V3Number& V3Number::opSub (const V3Number& lhs, const V3Number& rhs) {
     // i op j, max(L(lhs),L(rhs)) bit return, if any 4-state, 4-state return
     if (lhs.isFourState() || rhs.isFourState()) return setAllBitsX();
-    V3Number negrhs (rhs.m_fileline, rhs.width());
+    V3Number negrhs (rhs.m_fileline, lhs.width());
     negrhs.opNegate(rhs);
     return opAdd(lhs, negrhs);
 }
