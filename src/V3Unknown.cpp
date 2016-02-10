@@ -474,8 +474,11 @@ private:
 		nodep->unlinkFrBack(&replaceHandle);
 		V3Number xnum (nodep->fileline(), nodep->width());
 		xnum.setAllBitsX();
+		AstNode* old_condp = new AstGte (nodep->fileline(),
+					     new AstConst(nodep->fileline(), maxmsbnum),
+					     nodep->lsbp()->cloneTree(false));
 		AstNode* newp = new AstCondBound (nodep->fileline(),
-						  partial_condp,
+						  old_condp,
 						  nodep,
 						  new AstConst(nodep->fileline(), xnum));
 		if (debug()>=9) newp->dumpTree(cout,"        _new: ");
