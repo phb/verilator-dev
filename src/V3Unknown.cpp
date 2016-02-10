@@ -198,10 +198,11 @@ private:
 						    selp->widthp()->cloneTree(false)),
 					 new AstConst(fl, maxmsbnum));
 	    AstNode *lhs_shift = new AstShiftR(fl, new AstConst(fl, mask),
-							   offset->cloneTree(false));
+							   offset->cloneTree(false),
+							   width);
 
 	    AstNode *rhs_shift = new AstShiftL(fl, new AstVarRef(fl, varp, false),
-							  offset->cloneTree(false));
+							  offset->cloneTree(false), width);
 	    AstNode *rhs_normal = new AstOr(fl,
 				     new AstAnd(fl,
 						lhs_normal->cloneTree(false),
