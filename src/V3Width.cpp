@@ -544,7 +544,7 @@ private:
 		nodep->v3error("Unsupported: MSB < LSB of bit extract: "
 			       <<nodep->msbConst()<<"<"<<nodep->lsbConst());
 		width = (nodep->lsbConst() - nodep->msbConst() + 1);
-		nodep->dtypeSetLogicSized(width,width,AstNumeric::UNSIGNED);
+		nodep->dtypeSetLogicSized(width,width,AstNumeric::SIGNED);
 		nodep->widthp()->replaceWith(new AstConst(nodep->widthp()->fileline(),
 							  width));
 		nodep->lsbp()->replaceWith(new AstConst(nodep->lsbp()->fileline(), 0));
@@ -569,11 +569,11 @@ private:
 	    } else {
 		//nodep->v3fatalSrc("Should have been declRanged in V3WidthSel");
 	    }
-	    int selwidth = V3Number::log2b(frommsb+1-1)+1;	// Width to address a bit
+	    int selwidth = V3Number::log2b(frommsb+1-1)+1+1;	// Width to address a bit + 1 for sign
 	    AstNodeDType* selwidthDTypep = nodep->findLogicDType(selwidth,selwidth,nodep->lsbp()->dtypep()->numeric());
 	    nodep->fromp()->iterateAndNext(*this,WidthVP(SELF,FINAL).p());
 	    nodep->lsbp()->iterateAndNext(*this,WidthVP(SELF,FINAL).p());
-	    if (widthBad(nodep->lsbp(),selwidthDTypep)
+	    if (0 && widthBad(nodep->lsbp(),selwidthDTypep)
 		&& nodep->lsbp()->width()!=32) {
 		if (!nodep->fileline()->warnIsOff(V3ErrorCode::WIDTH)) {
 		    nodep->v3warn(WIDTH,"Bit extraction of var["<<(frommsb/elw)<<":"<<(fromlsb/elw)<<"] requires "

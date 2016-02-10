@@ -70,7 +70,7 @@ private:
 	return level;
     }
 
-    void replaceBoundLvalue(AstNode* nodep, AstNode* condp) {
+    void replaceBoundLvalue(AstNode* nodep, AstNode* partial_condp, AstNode* condp) {
 	// Spec says a out-of-range LHS SEL results in a NOP.
 	// This is a PITA.  We could:
 	//  1. IF(...) around an ASSIGN,
@@ -86,6 +86,7 @@ private:
 	// but makes a mess in the emitter as lvalue switching is needed.  So 4.
 	// SEL(...) -> temp
 	//             if (COND(LTE(bit<=maxlsb))) ASSIGN(SEL(...)),temp)
+        // FIXME: Doccument partial out of range code
 	if (m_assignwp) {
 	    // Wire assigns must become always statements to deal with insertion
 	    // of multiple statements.  Perhaps someday make all wassigns into always's?
@@ -131,13 +132,72 @@ private:
 
 	    AstNode* abovep = prep->backp();  // Grab above point before lose it w/ next replace
 	    prep->replaceWith(new AstVarRef(fl, varp, true));
-	    AstNode* newp = new AstIf(fl, condp,
-				      (needDly
+        AstNode* range_ifp= (needDly
 				       ? ((new AstAssignDly(fl, prep,
 							    new AstVarRef(fl, varp, false)))->castNode())
 				       : ((new AstAssign   (fl, prep,
-							    new AstVarRef(fl, varp, false)))->castNode())),
-				      NULL);
+							    new AstVarRef(fl, varp, false)))->castNode()));
+        AstNode *range_elsep = NULL;
+        /* For partial assignments, we reduce the lsb to ensure we fit a whole full
+           width bytes, but patch up __Vlvbound value to write back the correct bytes
+        */
+        if (partial_condp) {
+        AstSel *selp = prep->castSel();
+	    int maxmsb = selp->fromp()->dtypep()->width();
+	    V3Number maxmsbnum (fl, selp->lsbp()->width()+1, maxmsb);
+        AstNode *lhs = new AstSel(fl, 
+                selp->fromp()->cloneTree(false),
+                new AstSub(fl, new AstConst(fl, maxmsbnum), selp->widthp()->cloneTree(false)),
+                selp->widthp()->cloneTree(false)
+                );
+        int width = lhs->dtypep()->width();
+        V3Number mask (fl, width);
+        mask.setAllBits1();
+        //Calculate partial offset
+        // lsbp + width - maxmsbnum
+        AstNode *offset = new AstSub(fl,
+                            new AstAdd(fl,
+			    new AstExtendS(fl, selp->lsbp()->cloneTree(false),32),
+                                selp->widthp()->cloneTree(false)),
+                            new AstConst(fl, maxmsbnum));
+
+        AstNode *isReversedShift = new AstGteS(fl, new AstConst(fl, 0), offset->cloneTree(false));
+        AstNode *lhs_shift = new AstCond(fl, isReversedShift->cloneTree(false),
+                    new AstShiftL(fl,
+                        new AstConst(fl, mask),
+                        new AstNegate(fl, offset->cloneTree(false)),
+                        width
+                        ),
+                    new AstShiftR(fl,
+                        new AstConst(fl, mask),
+                        offset->cloneTree(false),
+                        width
+                        ));
+        AstNode *rhs_shift =new AstCond(fl, isReversedShift->cloneTree(false), 
+                    new AstShiftR(fl,
+                        new AstVarRef(fl, varp, false),
+                        new AstNegate(fl, offset->cloneTree(false)),
+                        width
+                        ),
+                    new AstShiftL(fl,
+                        new AstVarRef(fl, varp, false),
+                        offset->cloneTree(false),
+                        width));
+
+        AstNode *rhs = new AstOr(fl, 
+                new AstAnd(fl,
+                    lhs->cloneTree(false),
+                    lhs_shift),
+                    rhs_shift);
+        AstNode* partial_ifp = (needDly
+				       ? ((new AstAssignDly(fl, lhs,
+							    rhs))->castNode())
+				       : ((new AstAssign   (fl, lhs,
+							    rhs))->castNode()));
+                range_elsep = new AstIf(fl, partial_condp, partial_ifp, NULL);
+        }
+        AstIf* newp = new AstIf(fl, condp, range_ifp,range_elsep);
+        newp->branchPred(AstBranchPred::BP_LIKELY);
 	    if (debug()>=9) newp->dumpTree(cout,"     _new: ");
 	    abovep->addNextStmt(newp,abovep);
 	    prep->user2p(newp);  // Save so we may LogAnd it next time
@@ -336,17 +396,48 @@ private:
 	    }
 	    // Find range of dtype we are selecting from
 	    // Similar code in V3Const::warnSelect
-	    int maxmsb = nodep->fromp()->dtypep()->width()-1;
+	    int maxmsb = nodep->fromp()->dtypep()->width();
 	    if (debug()>=9) nodep->dumpTree(cout,"sel_old: ");
-	    V3Number maxmsbnum (nodep->fileline(), nodep->lsbp()->width(), maxmsb);
+	    V3Number maxmsbnum (nodep->fileline(), nodep->lsbp()->width()+1+1, maxmsb);
 
-	    // If (maxmsb >= selected), we're in bound
-	    AstNode* condp = new AstGte (nodep->fileline(),
+	    // If (maxmsb >= selected+width) && selected >= 0 we're fully in bound
+	    AstNode* condp = new AstLogAnd(nodep->fileline(),
+                new AstGteS (nodep->fileline(),
 					 new AstConst(nodep->fileline(), maxmsbnum),
-					 nodep->lsbp()->cloneTree(false));
+			 new AstAdd(nodep->fileline(),
+                         	new AstExtendS(nodep->fileline(), nodep->lsbp()->cloneTree(false), 32),
+                         	nodep->widthp()->cloneTree(false)
+                         )),
+                new AstGteS (nodep->fileline(),nodep->lsbp()->cloneTree(false),
+                    new AstConst(nodep->fileline(), 0)
+                    ));
+
+        // if selected < 0, then
+        // if maxmsb >= selected + width
+        // else 
+        // if maxmsb >= selected
+        // If maxmsb >= selected
+        // and we're not already fully bound
+       
+        // and and we're not fully in bound, we're partially in bound
+	    AstNode* partial_condp =new AstCond(nodep->fileline(),
+                     new AstGteS (nodep->fileline(), new AstConst(nodep->fileline(), 0),
+                         nodep->lsbp()->cloneTree(false)),
+                     new AstGteS (nodep->fileline(),
+					     new AstConst(nodep->fileline(), maxmsbnum),
+                         new AstAdd(nodep->fileline(),
+                             new AstExtendS(nodep->fileline(), nodep->lsbp()->cloneTree(false), 32),
+                             nodep->widthp()->cloneTree(false)
+                             )),
+                     new AstGteS (nodep->fileline(),
+					     new AstConst(nodep->fileline(), maxmsbnum),
+                        nodep->lsbp()->cloneTree(false)));
+
 	    // See if the condition is constant true (e.g. always in bound due to constant select)
 	    // Note below has null backp(); the Edit function knows how to deal with that.
+	    //condp->dumpTree(cout,"        _new: ");
 	    condp = V3Const::constifyEdit(condp);
+	    //condp->dumpTree(cout,"        _newer: ");
 	    if (condp->isOne()) {
 		// We don't need to add a conditional; we know the existing expression is ok
 		condp->deleteTree();
@@ -358,7 +449,7 @@ private:
 		V3Number xnum (nodep->fileline(), nodep->width());
 		xnum.setAllBitsX();
 		AstNode* newp = new AstCondBound (nodep->fileline(),
-						  condp,
+						  partial_condp,
 						  nodep,
 						  new AstConst(nodep->fileline(), xnum));
 		if (debug()>=9) newp->dumpTree(cout,"        _new: ");
@@ -368,7 +459,7 @@ private:
 		newp->accept(*this);
 	    }
 	    else { // lvalue
-		replaceBoundLvalue(nodep, condp);
+		replaceBoundLvalue(nodep, partial_condp, condp);
 	    }
 	}
     }
@@ -445,7 +536,8 @@ private:
 		newp->accept(*this);
 	    }
 	    else {  // lvalue
-		replaceBoundLvalue(nodep, condp);
+                //Check if it's partly in range (max_msb > lsbis partial
+		replaceBoundLvalue(nodep, NULL, condp);
 	    }
 	}
     }

@@ -476,6 +476,18 @@ public:
 	puts(cvtToStr(nodep->fileline()->lineno()));
 	puts(",\"\");\n");
     }
+
+    virtual void visit(AstRuntimeError* nodep, AstNUser*) {
+	puts("vl_fatal(");
+	putsQuoted(nodep->fileline()->filename());
+	puts(",");
+	puts(cvtToStr(nodep->fileline()->lineno()));
+	puts(",\"\",");
+    putsQuoted(nodep->text());
+    puts(");\n");
+
+    }
+
     virtual void visit(AstFinish* nodep, AstNUser*) {
 	puts("vl_finish(");
 	putsQuoted(nodep->fileline()->filename());

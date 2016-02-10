@@ -948,6 +948,12 @@ static inline IData VL_GTS_IQQ(int, int lbits, int, QData lhs, QData rhs) {
     return lhs_signed > rhs_signed;
 }
 
+static inline IData VL_GTES_IQI(int, int lbits, int, QData lhs, IData rhs) {
+    vlsint64_t lhs_signed = VL_EXTENDS_QQ(64, lbits, lhs);
+    vlsint64_t rhs_signed = VL_EXTENDS_QQ(64, lbits, rhs);
+    return lhs_signed >= rhs_signed;
+}
+
 static inline IData VL_GTES_III(int, int lbits, int, IData lhs, IData rhs) {
     vlsint64_t lhs_signed = VL_EXTENDS_QQ(64, lbits, lhs); //Q for gcc
     vlsint64_t rhs_signed = VL_EXTENDS_QQ(64, lbits, rhs); //Q for gcc

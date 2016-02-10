@@ -839,7 +839,7 @@ public:
     virtual bool same(AstNode*) const { return true; }
     virtual int instrCount() const { return widthInstrs()*(lsbp()->castConst()?3:10); }
     AstNode* fromp()		const { return op1p()->castNode(); }	// op1 = Extracting what (NULL=TBD during parsing)
-    AstNode* lsbp()		const { return op2p()->castNode(); }	// op2 = Msb selection expression
+    AstNode* lsbp()		const { return op2p()->castNode(); }	// op2 = lsb selection expression
     AstNode* widthp()		const { return op3p()->castNode(); }	// op3 = Width
     int		widthConst() const { return widthp()->castConst()->toSInt(); }
     int		lsbConst()   const { return lsbp()->castConst()->toSInt(); }
@@ -3163,6 +3163,19 @@ public:
     string text() const { return m_text; }
 };
 
+class AstRuntimeError : public AstNode {
+    string m_text;
+public:
+    AstRuntimeError(FileLine* fl, const string& text) : AstNode(fl), m_text(text) {}
+    ASTNODE_NODE_FUNCS(RuntimeError, RUNTIMEERROR)
+    string text() const { return m_text; }
+    virtual V3Hash sameHash() const { return V3Hash(); }
+    virtual bool isGateOptimizable() const { return false; }
+    virtual bool isPredictOptimizable() const { return false; }
+    virtual bool isPure() const { return false; }
+    virtual bool isOutputter() const { return true; }
+    virtual bool isUnlikely() const { return true; }
+};
 //======================================================================
 // non-ary ops
 
