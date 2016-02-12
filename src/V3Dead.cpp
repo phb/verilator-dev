@@ -20,6 +20,9 @@
 // DEAD TRANSFORMATIONS:
 //	Remove any unreferenced modules
 //	Remove any unreferenced variables
+//	Remove any unreferenced Scopes
+//	Remove any non-public typedef's
+//	Remove any cells that point to empty modules
 //
 // TODO: A graph would make the process of circular and interlinked
 // dependencies easier to resolve.
@@ -84,9 +87,13 @@ private:
     AstNodeModule*		m_modp;		// Current module
     vector<AstNode*>		m_varEtcsp;	// List of all encountered to avoid another loop through tree
     vector<AstVarScope*>	m_vscsp;	// List of all encountered to avoid another loop through tree
+    vector<AstScope*>		m_scsp;		// List of all encountered to avoid another loop through tree
+    vector<AstCell*>		m_cellsp;	// List of all encountered to avoid another loop through tree
     AssignMap			m_assignMap;	// List of all simple assignments for each variable
     bool			m_elimUserVars;	// Allow removal of user's vars
     bool			m_elimDTypes;	// Allow removal of DTypes
+    bool			m_elimScopes;	// Allow removal of Scopes
+    bool 			m_elimCells;    // Allow removal of Cells
     bool			m_sideEffect;	// Side effects discovered in assign RHS
 
     // METHODS
@@ -119,9 +126,26 @@ private:
 	checkAll(nodep);
 	m_modp = NULL;
     }
+    virtual void visit(AstCFunc* nodep, AstNUser*) {
+	nodep->iterateChildren(*this);
+	checkAll(nodep);
+	if (nodep->scopep()) nodep->scopep()->user1Inc();
+    }
+
+    virtual void visit(AstScope* nodep, AstNUser*) {
+	nodep->iterateChildren(*this);
+	checkAll(nodep);
+	if (nodep->aboveScopep()) nodep->aboveScopep()->user1Inc();
+
+	if (!nodep->isTop() && nodep->varsp() == NULL && nodep->blocksp() == NULL && nodep->finalClksp() == NULL) {
+	    m_scsp.push_back(nodep);
+	}
+    }
+
     virtual void visit(AstCell* nodep, AstNUser*) {
 	nodep->iterateChildren(*this);
 	checkAll(nodep);
+	m_cellsp.push_back(nodep);
 	nodep->modp()->user1Inc();
     }
     virtual void visit(AstNodeVarRef* nodep, AstNUser*) {
@@ -135,14 +159,16 @@ private:
 	    nodep->varp()->user1Inc();
 	}
 	if (nodep->packagep()) {
-	    nodep->packagep()->user1Inc();
+	    if (m_elimScopes) nodep->packagep(NULL);
+	    else nodep->packagep()->user1Inc();
 	}
     }
     virtual void visit(AstNodeFTaskRef* nodep, AstNUser*) {
 	nodep->iterateChildren(*this);
 	checkAll(nodep);
 	if (nodep->packagep()) {
-	    nodep->packagep()->user1Inc();
+	    if (m_elimScopes) nodep->packagep(NULL);
+	    else nodep->packagep()->user1Inc();
 	}
     }
     virtual void visit(AstRefDType* nodep, AstNUser*) {
@@ -150,7 +176,8 @@ private:
 	checkDType(nodep);
 	checkAll(nodep);
 	if (nodep->packagep()) {
-	    nodep->packagep()->user1Inc();
+	    if (m_elimScopes) nodep->packagep(NULL);
+	    else nodep->packagep()->user1Inc();
 	}
     }
     virtual void visit(AstNodeDType* nodep, AstNUser*) {
@@ -162,7 +189,8 @@ private:
 	nodep->iterateChildren(*this);
 	checkAll(nodep);
 	if (nodep->packagep()) {
-	    nodep->packagep()->user1Inc();
+	    if (m_elimScopes) nodep->packagep(NULL);
+	    else nodep->packagep()->user1Inc();
 	}
     }
     virtual void visit(AstTypedef* nodep, AstNUser*) {
@@ -175,7 +203,8 @@ private:
     virtual void visit(AstVarScope* nodep, AstNUser*) {
 	nodep->iterateChildren(*this);
 	checkAll(nodep);
-	if (mightElim(nodep->varp())) {
+	if (nodep->scopep()) nodep->scopep()->user1Inc();
+	if (mightElimVar(nodep->varp())) {
 	    m_vscsp.push_back(nodep);
 	}
     }
@@ -183,7 +212,7 @@ private:
 	nodep->iterateChildren(*this);
 	checkAll(nodep);
 	if (nodep->isSigPublic() && m_modp && m_modp->castPackage()) m_modp->user1Inc();
-	if (mightElim(nodep)) {
+	if (mightElimVar(nodep)) {
 	    m_varEtcsp.push_back(nodep);
 	}
     }
@@ -235,13 +264,34 @@ private:
 	    }
 	}
     }
-    bool mightElim(AstVar* nodep) {
+    bool mightElimVar(AstVar* nodep) {
 	return (!nodep->isSigPublic()	// Can't elim publics!
 		&& !nodep->isIO()
 		&& (nodep->isTemp()
 		    || (nodep->isParam() && !nodep->isTrace())
 		    || m_elimUserVars));  // Post-Trace can kill most anything
     }
+
+    void deadCheckScope() {
+	for (vector<AstScope*>::iterator it = m_scsp.begin(); it!=m_scsp.end(); ++it) {
+	    AstScope* scp = *it;
+	    if (scp->user1() == 0) {
+		UINFO(4,"  Dead AstScope "<<scp<<endl);
+		scp->unlinkFrBack()->deleteTree(); VL_DANGLING(scp);
+	    }
+	}
+    }
+
+    void deadCheckCells() {
+	for (vector<AstCell*>::iterator it = m_cellsp.begin(); it!=m_cellsp.end(); ++it) {
+	    AstCell* cellp = *it;
+	    if (cellp->user1() == 0 && cellp->modp()->stmtsp() == NULL) {
+		cellp->modp()->user1(cellp->modp()->user1()-1);
+		cellp->unlinkFrBack()->deleteTree(); VL_DANGLING(cellp);
+	    }
+	}
+    }
+
     void deadCheckVar() {
 	// Delete any unused varscopes
 	for (vector<AstVarScope*>::iterator it = m_vscsp.begin(); it!=m_vscsp.end(); ++it) {
@@ -254,6 +304,7 @@ private:
 		    UINFO(4,"    Dead assign "<<assp<<endl);
 		    assp->unlinkFrBack()->deleteTree(); VL_DANGLING(assp);
 		}
+		if (vscp->scopep()) vscp->scopep()->user1(vscp->scopep()->user1()-1);
 		vscp->unlinkFrBack()->deleteTree(); VL_DANGLING(vscp);
 	    }
 	}
@@ -267,18 +318,31 @@ private:
 
 public:
     // CONSTRUCTORS
-    DeadVisitor(AstNetlist* nodep, bool elimUserVars, bool elimDTypes) {
+    DeadVisitor(AstNetlist* nodep, bool elimUserVars, bool elimDTypes, bool elimScopes, bool elimCells) {
 	m_modp = NULL;
+	m_elimCells = elimCells;
 	m_elimUserVars = elimUserVars;
 	m_elimDTypes = elimDTypes;
+	m_elimScopes = elimScopes;
 	m_sideEffect = false;
 	// Prepare to remove some datatypes
 	nodep->typeTablep()->clearCache();
 	// Operate on whole netlist
 	nodep->accept(*this);
 	deadCheckVar();
+
+	// We only elimate scopes when in a flattened structure
+	// Otherwise we have no easy way to know if a scope is used
+	if (elimScopes) {
+	    deadCheckScope();
+	}
+
+	if (elimCells) {
+	    deadCheckCells();
+	}
 	// Modules after vars, because might be vars we delete inside a mod we delete
 	deadCheckMod();
+
 	// We may have removed some datatypes, cleanup
 	nodep->typeTablep()->repairCache();
     }
@@ -290,16 +354,30 @@ public:
 
 void V3Dead::deadifyModules(AstNetlist* nodep) {
     UINFO(2,__FUNCTION__<<": "<<endl);
-    DeadVisitor visitor (nodep, false, false);
+    DeadVisitor visitor (nodep, false, false, false, false);
     V3Global::dumpCheckGlobalTree("deadModules.tree", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 6);
 }
+
 void V3Dead::deadifyDTypes(AstNetlist* nodep) {
     UINFO(2,__FUNCTION__<<": "<<endl);
-    DeadVisitor visitor (nodep, false, true);
+    DeadVisitor visitor (nodep, false, true, false, false);
     V3Global::dumpCheckGlobalTree("deadDType.tree", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
 }
+
+void V3Dead::deadifyDTypesScoped(AstNetlist* nodep) {
+    UINFO(2,__FUNCTION__<<": "<<endl);
+    DeadVisitor visitor (nodep, false, true, true, false);
+    V3Global::dumpCheckGlobalTree("deadDType.tree", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
+}
+
 void V3Dead::deadifyAll(AstNetlist* nodep) {
     UINFO(2,__FUNCTION__<<": "<<endl);
-    DeadVisitor visitor (nodep, true, true);
+    DeadVisitor visitor (nodep, true, true, false, true);
+    V3Global::dumpCheckGlobalTree("deadAll.tree", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
+}
+
+void V3Dead::deadifyAllScoped(AstNetlist* nodep) {
+    UINFO(2,__FUNCTION__<<": "<<endl);
+    DeadVisitor visitor (nodep, true, true, true, true);
     V3Global::dumpCheckGlobalTree("deadAll.tree", 0, v3Global.opt.dumpTreeLevel(__FILE__) >= 3);
 }
