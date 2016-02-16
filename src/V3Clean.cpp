@@ -269,6 +269,7 @@ private:
     virtual void visit(AstCCall* nodep, AstNUser*) {
 	nodep->iterateChildren(*this);
 	insureCleanAndNext (nodep->argsp());
+	setClean (nodep, true);
     }
 
     //--------------------

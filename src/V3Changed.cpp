@@ -51,10 +51,16 @@ public:
     AstNodeModule*	m_topModp;	// Top module
     AstScope*		m_scopetopp;	// Scope under TOPSCOPE
     AstCFunc*		m_chgFuncp;	// Change function we're building
+    AstCFunc*		m_tlChgFuncp;	// Top level change function we're building
+    int			m_numStmts;     // Number of statements added to m_chgFuncp
+    int 		m_funcNum;
+
     ChangedState() {
 	m_topModp = NULL;
 	m_chgFuncp = NULL;
 	m_scopetopp = NULL;
+	m_numStmts = 0;
+	m_funcNum = 0;
     }
     ~ChangedState() {}
 };
@@ -87,6 +93,30 @@ private:
 			   <<"... Could recompile with DETECTARRAY_MAX_INDEXES increased"<<endl);
 	    return;
 	}
+	if (m_statep->m_chgFuncp == NULL || (v3Global.opt.outputSplitCFuncs()
+	    && v3Global.opt.outputSplitCFuncs() < m_statep->m_numStmts)) {
+	    m_statep->m_chgFuncp = new AstCFunc(m_vscp->fileline(), "_change_request_" + cvtToStr(++m_statep->m_funcNum), m_statep->m_scopetopp, "QData");
+	    m_statep->m_chgFuncp->argTypes(EmitCBaseVisitor::symClassVar());
+	    m_statep->m_chgFuncp->symProlog(true);
+	    m_statep->m_chgFuncp->declPrivate(true);
+	    m_statep->m_scopetopp->addActivep(m_statep->m_chgFuncp);
+
+	    // Add a top call to it
+	    AstCCall *callp = new AstCCall(m_vscp->fileline(), m_statep->m_chgFuncp);
+	    callp->argTypes("vlSymsp");
+
+
+	    if (m_statep->m_tlChgFuncp->stmtsp() == NULL) {
+		m_statep->m_tlChgFuncp->addStmtsp(new AstCReturn(m_vscp->fileline(), callp));
+	    } else {
+		AstCReturn *returnp = m_statep->m_tlChgFuncp->stmtsp()->castCReturn();
+		AstNode *n = new AstCReturn(m_vscp->fileline(), new AstLogAnd(m_vscp->fileline(), callp,
+					    returnp->lhsp()->unlinkFrBack()));
+		returnp->replaceWith(n);
+	    }
+	    m_statep->m_numStmts = 0;
+	}
+
 	AstChangeDet* changep = new AstChangeDet (m_vscp->fileline(),
 						  m_varEqnp->cloneTree(true),
 						  m_newRvEqnp->cloneTree(true), false);
@@ -95,6 +125,7 @@ private:
 					  m_newLvEqnp->cloneTree(true),
 					  m_varEqnp->cloneTree(true));
 	m_statep->m_chgFuncp->addFinalsp(initp);
+	m_statep->m_numStmts += 50;
     }
 
     virtual void visit(AstBasicDType* nodep, AstNUser*) {
@@ -200,6 +231,9 @@ private:
 	}
 	nodep->iterateChildren(*this);
     }
+    // Multiple change detection functions are fine,
+    // but to keep V3EmitC happy, a function that contains an AstChangeDet
+    // must be sane.
     virtual void visit(AstTopScope* nodep, AstNUser*) {
 	UINFO(4," TS "<<nodep<<endl);
 	// Clearing
@@ -209,15 +243,24 @@ private:
 	if (!scopep) nodep->v3fatalSrc("No scope found on top level, perhaps you have no statements?\n");
 	m_statep->m_scopetopp = scopep;
 	// Create change detection function
-	m_statep->m_chgFuncp = new AstCFunc(nodep->fileline(), "_change_request", scopep, "QData");
-	m_statep->m_chgFuncp->argTypes(EmitCBaseVisitor::symClassVar());
-	m_statep->m_chgFuncp->symProlog(true);
-	m_statep->m_chgFuncp->declPrivate(true);
-	m_statep->m_scopetopp->addActivep(m_statep->m_chgFuncp);
-	// We need at least one change detect so we know to emit the correct code
-	m_statep->m_chgFuncp->addStmtsp(new AstChangeDet(nodep->fileline(), NULL, NULL, false));
-	//
+
+	m_statep->m_tlChgFuncp = new AstCFunc(nodep->fileline(), "_change_request", scopep, "QData");
+	m_statep->m_tlChgFuncp->argTypes(EmitCBaseVisitor::symClassVar());
+	m_statep->m_tlChgFuncp->symProlog(true);
+	m_statep->m_tlChgFuncp->declPrivate(true);
+	m_statep->m_scopetopp->addActivep(m_statep->m_tlChgFuncp);
 	nodep->iterateChildren(*this);
+	if (m_statep->m_tlChgFuncp->stmtsp() == NULL) {
+	    m_statep->m_chgFuncp = m_statep->m_tlChgFuncp;
+	    // We need at least one change detect so we know to emit the correct code
+	    m_statep->m_chgFuncp->addStmtsp(new AstChangeDet(nodep->fileline(), NULL, NULL, false));
+	}
+/*
+	else {
+	    AstNode *n = m_statep->m_tlChgFuncp->stmtsp()->unlinkFrBack();
+	    m_statep->m_tlChgFuncp->op3p((new AstCReturn(nodep->fileline(), n));
+	}
+*/
     }
     virtual void visit(AstVarScope* nodep, AstNUser*) {
 	if (nodep->isCircular()) {

@@ -1465,6 +1465,7 @@ void EmitCImp::emitVarResets(AstNodeModule* modp) {
 		}
 		for (int v=0; v<vects; ++v) puts( "}}\n");
 	    }
+	    splitSizeInc(1);
 	}
     }
 }
@@ -1665,6 +1666,7 @@ void EmitCImp::emitCellCtors(AstNodeModule* modp) {
     for (AstNode* nodep=modp->stmtsp(); nodep; nodep = nodep->nextp()) {
 	if (AstCell* cellp=nodep->castCell()) {
 	    puts("VL_CELL ("+cellp->name()+", "+modClassName(cellp->modp())+");\n");
+	    splitSizeInc(1);
 	}
     }
 }
@@ -1694,6 +1696,7 @@ void EmitCImp::emitSensitives() {
 		    for (int v=0; v<vects; ++v) puts( "[__Vi"+cvtToStr(v)+"]");
 		    puts(";\n");
 		    for (int v=0; v<vects; ++v) puts( "}}\n");
+		    splitSizeInc(1);
 		}
 	    }
 	}
@@ -2000,6 +2003,8 @@ void EmitCImp::emitInt(AstNodeModule* modp) {
     if (modp->isTop()) {
 	ofp()->putsPrivate(true);  // private:
 	puts("static void _eval_initial_loop("+EmitCBaseVisitor::symClassVar()+");\n");
+	// Figure out how many splits required by constructor
+
     }
 
     ofp()->putsPrivate(false);  // public:
@@ -2112,6 +2117,9 @@ void EmitCImp::main(AstNodeModule* modp, bool slow, bool fast) {
     if (debug()>=5) {
 	UINFO(0,"  Emitting "<<modClassName(modp)<<endl);
     }
+    /* Collect module constructor/variable state */
+
+
 
     if (optSystemPerl()) {
 	m_ofp = newOutCFile(modp, !m_fast, true);

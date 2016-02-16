@@ -4998,6 +4998,7 @@ public:
     AstNode*	initsp() 	const { return op2p()->castNode(); }
     void addInitsp(AstNode* nodep) { addOp2p(nodep); }
     AstNode*	stmtsp() 	const { return op3p()->castNode(); }
+    void stmtsp(AstNode* nodep) { setOp3p(nodep); }
     void addStmtsp(AstNode* nodep) { addOp3p(nodep); }
     AstNode*	finalsp() 	const { return op4p()->castNode(); }
     void addFinalsp(AstNode* nodep) { addOp4p(nodep); }
