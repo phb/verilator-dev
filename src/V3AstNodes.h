@@ -5099,6 +5099,21 @@ public:
 };
 
 
+class AstCReset : public AstNodeStmt {
+    //Reset variable at startup
+public:
+    AstCReset(FileLine* fl, AstNode* exprsp)
+    : AstNodeStmt(fl) {
+	    addNOp1p(exprsp);
+    }
+    ASTNODE_NODE_FUNCS(CReset, CRESET)
+    virtual bool isGateOptimizable() const { return false; }
+    virtual bool isPredictOptimizable() const { return false; }
+    virtual V3Hash sameHash() const { return V3Hash(); }
+    virtual bool same(AstNode* samep) const { return true; }
+    AstNode*	bodysp()	const { return op1p()->castNode(); }	// op1= varref to reset
+};
+
 class AstCStmt : public AstNodeStmt {
     // Emit C statement
 public:
