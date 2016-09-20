@@ -552,7 +552,7 @@ bool V3InFilter::readWholefile(const string& filename, V3InFilter::StrList& outl
 
 V3OutFormatter::V3OutFormatter(const string& filename, V3OutFormatter::Language lang)
     : m_filename(filename), m_lang(lang)
-    , m_lineno(1), m_column(0)
+    , m_column(0)
     , m_nobreak(false), m_prependIndent(true), m_indentLevel(0)
     , m_declSAlign(0), m_declNSAlign(0), m_declPadNum(0) {
     m_blockIndent = v3Global.opt.decoration() ? 4 : 1;
@@ -652,103 +652,105 @@ int V3OutFormatter::endLevels (const char *strg) {
 }
 
 void V3OutFormatter::puts (const char *strg) {
-    if (m_prependIndent) {
-	putsNoTracking(indentStr(endLevels(strg)));
-	m_prependIndent = false;
-    }
-    bool wordstart = true;
-    for (const char* cp=strg; *cp; cp++) {
-	putcNoTracking (*cp);
-	switch (*cp) {
-	case '\n':
-	    m_lineno++;
-	    wordstart = true;
-	    if (cp[1]=='\0') {
-		m_prependIndent = true;	// Add the indent later, may be a indentInc/indentDec called between now and then
-	    } else {
-		m_prependIndent = false;
-		putsNoTracking(indentStr(endLevels(cp+1)));
+    if (!v3Global.opt.decoration()) {
+	putsNoTracking(strg);
+    } else {
+	if (m_prependIndent) {
+	    putsNoTracking(indentStr(endLevels(strg)));
+	    m_prependIndent = false;
+	}
+	bool wordstart = true;
+	for (const char *cp = strg; *cp; cp++) {
+	    putcNoTracking(*cp);
+	    switch (*cp) {
+		case '\n':
+		    wordstart = true;
+		    if (cp[1] == '\0') {
+			m_prependIndent = true;        // Add the indent later, may be a indentInc/indentDec called between now and then
+		    } else {
+			m_prependIndent = false;
+			putsNoTracking(indentStr(endLevels(cp + 1)));
+		    }
+		    break;
+		case ' ':
+		    wordstart = true;
+		    break;
+		case '\t':
+		    wordstart = true;
+		    break;
+		case '{':
+		    indentInc();
+		    break;
+		case '}':
+		    indentDec();
+		    break;
+		case '(':
+		    indentInc();
+		    m_parenVec.push(m_column);  // Line up continuation with open paren, plus one indent
+		    break;
+		case ')':
+		    if (!m_parenVec.empty()) m_parenVec.pop();
+		    indentDec();
+		    break;
+		case '<':
+		    if (m_lang == LA_XML) {
+			if (cp[1] == '/') {} // Zero as the > will result in net decrease by one
+			else if (cp[1] == '!' || cp[1] == '?') { indentInc(); } // net same indent
+			else {
+			    indentInc();
+			    indentInc();
+			}  // net increase by one
+		    }
+		    break;
+		case '>':
+		    if (m_lang == LA_XML) {
+			indentDec();
+			if (cp > strg && cp[-1] == '/') indentDec();   // < ..... /> stays same level
+		    }
+		    break;
+		case 'b':
+		    if (wordstart && m_lang == LA_VERILOG && tokenStart(cp, "begin")) {
+			indentInc();
+		    }
+		    wordstart = false;
+		    break;
+		case 'c':
+		    if (wordstart && m_lang == LA_VERILOG
+			&& (tokenStart(cp, "case")
+			    || tokenStart(cp, "casex")
+			    || tokenStart(cp, "casez"))) {
+			indentInc();
+		    }
+		    wordstart = false;
+		    break;
+		case 'e':
+		    if (wordstart && m_lang == LA_VERILOG && tokenEnd(cp)) {
+			indentDec();
+		    }
+		    wordstart = false;
+		    break;
+		case 'm':
+		    if (wordstart && m_lang == LA_VERILOG && tokenStart(cp, "module")) {
+			indentInc();
+		    }
+		    wordstart = false;
+		    break;
+		default:
+		    wordstart = false;
+		    break;
 	    }
-	    break;
-	case ' ':
-	    wordstart = true;
-	    break;
-	case '\t':
-	    wordstart = true;
-	    break;
-	case '{':
-	    indentInc();
-	    break;
-	case '}':
-	    indentDec();
-	    break;
-	case '(':
-	    indentInc();
-	    if (v3Global.opt.decoration()) {
-		m_parenVec.push(m_column);  // Line up continuation with open paren, plus one indent
-	    } else {
-		m_parenVec.push(m_indentLevel*m_blockIndent); // Line up continuation with block+1
-	    }
-	    break;
-	case ')':
-	    if (!m_parenVec.empty()) m_parenVec.pop();
-	    indentDec();
-	    break;
-	case '<':
-	    if (m_lang==LA_XML) {
-		if (cp[1] == '/') {} // Zero as the > will result in net decrease by one
-		else if (cp[1] == '!' || cp[1] == '?') { indentInc(); } // net same indent
-		else { indentInc(); indentInc(); }  // net increase by one
-	    }
-	    break;
-	case '>':
-	    if (m_lang==LA_XML) {
-		indentDec();
-		if (cp>strg && cp[-1]=='/') indentDec();   // < ..... /> stays same level
-	    }
-	    break;
-	case 'b':
-	    if (wordstart && m_lang==LA_VERILOG && tokenStart(cp,"begin")) {
-		indentInc();
-	    }
-	    wordstart = false;
-	    break;
-	case 'c':
-	    if (wordstart && m_lang==LA_VERILOG
-		&& (tokenStart(cp,"case")
-		    || tokenStart(cp,"casex")
-		    || tokenStart(cp,"casez"))) {
-		indentInc();
-	    }
-	    wordstart = false;
-	    break;
-	case 'e':
-	    if (wordstart && m_lang==LA_VERILOG && tokenEnd(cp)) {
-		indentDec();
-	    }
-	    wordstart = false;
-	    break;
-	case 'm':
-	    if (wordstart && m_lang==LA_VERILOG && tokenStart(cp,"module")) {
-		indentInc();
-	    }
-	    wordstart = false;
-	    break;
-	default:
-	    wordstart = false;
-	    break;
 	}
     }
 }
 
 void V3OutFormatter::putBreakExpr () {
-    if (!m_parenVec.empty()) putBreak();
+    //No tracking of parenvec in no-decoration mode
+    if (!v3Global.opt.decoration() || !m_parenVec.empty()) putBreak();
 }
 
 // Add a line break if too wide
 void V3OutFormatter::putBreak () {
     if (!m_nobreak) {
-	//char s[1000]; sprintf(s,"{%d,%d}",m_column,m_parenVec.top()); putsNoTracking(s);
 	if (exceededWidth()) {
 	    putcNoTracking('\n');
 	    if (!m_parenVec.empty()) putsNoTracking(indentStr(m_parenVec.top()));
@@ -761,22 +763,30 @@ void V3OutFormatter::putsQuoted(const string& strg) {
     // Don't use to quote a filename for #include - #include doesn't \ escape.
     putcNoTracking('"');
     string quoted = V3Number::quoteNameControls(strg);
-    for (string::const_iterator cp=quoted.begin(); cp!=quoted.end(); ++cp) {
-    	putcNoTracking (*cp);
-    }
+    putsNoTracking(quoted);
     putcNoTracking('"');
 }
+
 void V3OutFormatter::putsNoTracking (const string& strg) {
-    // Don't track {}'s, probably because it's a $display format string
-    for (string::const_iterator cp=strg.begin(); cp!=strg.end(); ++cp) {
-	putcNoTracking (*cp);
+    if (!v3Global.opt.decoration()) {
+	putsOutput(strg.c_str());
+	if (strg.back() == '\n') {
+	    m_column = 0;
+	    m_nobreak = true;
+	} else {
+	    m_column += strg.size();
+	    m_nobreak = false;
+	}
+    } else {
+	for (string::const_iterator cp=strg.begin(); cp!=strg.end(); ++cp) {
+	    putcNoTracking(*cp);
+	}
     }
 }
 
 void V3OutFormatter::putcNoTracking (char chr) {
     switch (chr) {
     case '\n':
-	m_lineno++;
 	m_column=0;
 	m_nobreak=true;
 	break;

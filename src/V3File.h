@@ -93,6 +93,9 @@ public:
 
 //============================================================================
 // V3OutFormatter: A class for automatic indentation of C++ or Verilog code.
+// If v3Global.opt.decoration is disabled, this class ignores detailed
+// tracking of indentation and instead only does best-effort line breaking
+// to keep compilers happy.
 
 class V3OutFormatter {
     // TYPES
@@ -115,7 +118,6 @@ private:
     Language	m_lang;		// Indenting Verilog code
     int		m_blockIndent;	// Characters per block indent
     int		m_commaWidth;	// Width after which to break at ,'s
-    int		m_lineno;
     int		m_column;
     int		m_nobreak;	// Basic operator or begin paren, don't break next
     bool	m_prependIndent;
@@ -127,15 +129,19 @@ private:
 
     int		endLevels(const char* strg);
     const char* indentStr(int levels);
+    bool tokenStart(const char* cp, const char* cmp);
+    bool tokenEnd(const char* cp);
     void putcNoTracking(char chr);
 
 public:
     V3OutFormatter(const string& filename, Language lang);
     virtual ~V3OutFormatter() {}
+
     // ACCESSORS
     int column() const { return m_column; }
     int blockIndent() const { return m_blockIndent; }
     void blockIndent(int flag) { m_blockIndent=flag; }
+
     // METHODS
     void printf(const char* fmt...) VL_ATTR_PRINTF(2);
     void puts(const char* strg);
@@ -145,10 +151,9 @@ public:
     void putBreak();  // Print linebreak if line is too wide
     void putBreakExpr();  // Print linebreak in expression if line is too wide
     void putbs(const char* strg) { putBreakExpr(); puts(strg); }
-    void putbs(const string& strg) {  putBreakExpr(); puts(strg); }
+    void putbs(const string& strg) {  putbs(strg.c_str()); }
+
     bool exceededWidth() const { return m_column > m_commaWidth; }
-    bool tokenStart(const char* cp, const char* cmp);
-    bool tokenEnd(const char* cp);
     void indentInc() { m_indentLevel += m_blockIndent; }
     void indentDec() {
 	m_indentLevel -= m_blockIndent;
@@ -156,11 +161,13 @@ public:
     }
     void blockInc() { m_parenVec.push(m_indentLevel + m_blockIndent); }
     void blockDec() { if (!m_parenVec.empty()) m_parenVec.pop(); }
+
     // STATIC METHODS
     static const string indentSpaces(int levels);
 
     // CALLBACKS - MUST OVERRIDE
     virtual void putcOutput(char chr) = 0;
+    virtual void putsOutput(const char* strg) = 0;
 };
 
 //============================================================================
@@ -175,6 +182,7 @@ public:
 private:
     // CALLBACKS
     virtual void putcOutput(char chr) { fputc(chr, m_fp); }
+    virtual void putsOutput(const char* strg) { fputs(strg, m_fp); };
 };
 
 //######################################################################

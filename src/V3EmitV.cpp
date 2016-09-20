@@ -651,6 +651,12 @@ class EmitVPrefixedFormatter : public V3OutFormatter {
     int		m_column;	// Rough location; need just zero or non-zero
     FileLine*	m_prefixFl;
     // METHODS
+    virtual void putsOutput(const char* strg) {
+	for (int i = 0; i < strlen(strg); i++) {
+	    putcOutput(strg[i]);
+	}
+    }
+
     virtual void putcOutput(char chr) {
 	if (chr == '\n') {
 	    m_column = 0;
