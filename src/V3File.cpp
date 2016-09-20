@@ -797,24 +797,6 @@ void V3OutFormatter::putcNoTracking (char chr) {
     putcOutput (chr);
 }
 
-void V3OutFormatter::putAlign (bool/*AlignClass*/ isStatic, int align, int size, const string& prefix) {
-    if (size==0) size=align;
-    int alignSize = size; if (alignSize>8) alignSize=8;
-    int& alignr = isStatic ? m_declSAlign : m_declNSAlign;
-    int padsize = alignSize - (alignr % alignSize);
-    if (padsize && padsize!=alignSize) {
-	// Modern versions of GCC no longer need this, they'll pad for us, so
-	// we'll save the work and danger of getting it wrong.
-	puts("//char\t");
-	puts(prefix);
-	puts("__VpadToAlign"+cvtToStr(alignr)
-	     +"["+cvtToStr(padsize)+"];\n");
-	alignr += padsize;
-	m_declPadNum++;
-    }
-    alignr += size;
-}
-
 //----------------------------------------------------------------------
 // Simple wrappers
 
