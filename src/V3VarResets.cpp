@@ -33,53 +33,60 @@
 #include <algorithm>
 
 #include "V3Global.h"
+#include "V3EmitCBase.h"
 #include "V3VarResets.h"
 
 class V3VarReset {
 private:
+    string 		m_basename;
+    string 		m_argsp;
+    string 		m_callargsp;
     AstNodeModule*	m_modp;		// Current module
     AstCFunc*		m_tlFuncp;	// Top level function being built
     AstCFunc*		m_funcp;	// Current function
     int			m_numStmts;	// Number of statements output
     int			m_funcNum;	// Function number being built
 
-    void initializeVar(AstVar* nodep) {
+
+public:
+    void add(AstNode* nodep) {
 	if (v3Global.opt.outputSplitCFuncs()
 	    && v3Global.opt.outputSplitCFuncs() < m_numStmts) {
 	    m_funcp = NULL;
 	}
 	if (!m_funcp) {
-	    m_funcp = new AstCFunc(m_modp->fileline(), "_ctor_var_reset_" + cvtToStr(++m_funcNum), NULL, "void");
+	    m_funcp = new AstCFunc(m_modp->fileline(), m_basename + "_" + cvtToStr(++m_funcNum), NULL, "void");
 	    m_funcp->isStatic(false);
 	    m_funcp->declPrivate(true);
 	    m_funcp->slow(true);
+	    m_funcp->argTypes(m_argsp);
 	    m_modp->addStmtp(m_funcp);
 
 	    // Add a top call to it
 	    AstCCall* callp = new AstCCall(m_modp->fileline(), m_funcp);
+	    callp->argTypes(m_callargsp);
 
 	    m_tlFuncp->addStmtsp(callp);
 	    m_numStmts = 0;
 	}
-	m_funcp->addStmtsp(new AstCReset(nodep->fileline(), new AstVarRef(nodep->fileline(), nodep, true)));
+	m_funcp->addStmtsp(nodep);
 	m_numStmts += 1;
     }
 
-public:
-    V3VarReset(AstNodeModule* nodep) {
+    V3VarReset(AstNodeModule* nodep, string basename, string argsp="", string callargsp="") {
+	m_basename = basename;
+	m_argsp = argsp;
+	m_callargsp = callargsp;
 	m_modp = nodep;
 	m_numStmts = 0;
 	m_funcNum = 0;
-	m_tlFuncp = new AstCFunc(nodep->fileline(), "_ctor_var_reset", NULL, "void");
+	m_tlFuncp = new AstCFunc(nodep->fileline(), basename, NULL, "void");
 	m_tlFuncp->declPrivate(true);
 	m_tlFuncp->isStatic(false);
 	m_tlFuncp->slow(true);
+	m_tlFuncp->argTypes(m_argsp);
 	m_funcp = m_tlFuncp;
 	m_modp->addStmtp(m_tlFuncp);
-	for (AstNode* np = m_modp->stmtsp(); np; np = np->nextp()) {
-	    AstVar* varp = np->castVar();
-	    if (varp) initializeVar(varp); 
-	}
     }
 };
 
@@ -87,8 +94,22 @@ public:
 
 void V3VarResets::emitResets() {
     UINFO(2,__FUNCTION__<<": "<<endl);
-    for (AstNodeModule* nodep = v3Global.rootp()->modulesp(); nodep; nodep=nodep->nextp()->castNodeModule()) {
+    for (AstNodeModule* modp = v3Global.rootp()->modulesp(); modp; modp=modp->nextp()->castNodeModule()) {
     	// Process each module in turn
-	V3VarReset v(nodep);
+	V3VarReset var_reset(modp, "_ctor_var_reset");
+	V3VarReset configure_coverage(modp, "_configure_coverage", EmitCBaseVisitor::symClassVar()+ ", bool first", "vlSymsp, first");
+
+	for (AstNode* np = modp->stmtsp(); np; np = np->nextp()) {
+	    AstVar* varp = np->castVar();
+	    if (varp) var_reset.add(new AstCReset(varp->fileline(), new AstVarRef(varp->fileline(), varp, true)));
+	    AstCoverDecl* coverp = np->castCoverDecl();
+	    if (coverp) {
+		AstNode *backp = coverp->backp();
+		coverp->unlinkFrBack();
+		configure_coverage.add(coverp);
+		np = backp;
+	    }
+	}
+
     }
 }
