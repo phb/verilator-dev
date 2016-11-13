@@ -145,11 +145,17 @@ void V3Global::readFiles() {
 }
 
 void V3Global::dumpCheckGlobalTree(const string& filename, int newNumber, bool doDump) {
+    static time_t last_time;
+    if (!last_time) {
+	last_time = std::time(NULL);
+    } else {
+	UINFO(0, "Performing pass " << filename << " took " << (time(NULL) - last_time) << " milliseconds" << endl);
+	last_time = std::time(NULL);
+    }
     v3Global.rootp()->dumpTreeFile(v3Global.debugFilename(filename, newNumber), false, doDump);
 }
 
 //######################################################################
-
 void process () {
     // Sort modules by level so later algorithms don't need to care
     V3LinkLevel::modSortByLevel();
