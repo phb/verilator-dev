@@ -45,4 +45,10 @@ module t;
       $stop;
    endfunction
 
+   // Verify $fatal works with sformatf as argument
+   localparam BFATAL = f_bad_fatal(3);
+   function integer f_bad_fatal(input [31:0] a);
+      $fatal(2, "%s", $sformatf("Fatal Error"));
+   endfunction
+
 endmodule

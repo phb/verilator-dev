@@ -726,6 +726,10 @@ private:
 	if (!m_params) { badNodeType(nodep); return; }
     }
 
+    virtual void visit(AstScopeName *nodep) {
+        // Ignore
+    }
+
     virtual void visit(AstSFormatF *nodep) {
 	if (jumpingOver(nodep)) return;
 	if (!optimizable()) return;  // Accelerate
@@ -743,11 +747,11 @@ private:
 		} else if (!inPct) {   // Normal text
 		    result += *pos;
 		} else { // Format character
-		    AstNode* argp = nextArgp;
 		    inPct = false;
-		    nextArgp = nextArgp->nextp();
 
 		    if (V3Number::displayedFmtLegal(tolower(pos[0]))) {
+			AstNode* argp = nextArgp;
+			nextArgp = nextArgp->nextp();
 			V3Number* nump = fetchNumberNull(argp);
 			if (!nump) {
 			    clearOptimizable(nodep, "Argument for $display like statement is not constant");
@@ -760,6 +764,10 @@ private:
 			case '%':
 			    result += "%";
 			    break;
+			    // This happens prior to AstScope so we don't know the scope name. Leave the %m in place.
+			case 'm':
+			    result += "%m";
+			    break;
 			default:
 			    clearOptimizable(nodep, "Unknown $display-like format code.");
 			    break;
@@ -768,6 +776,7 @@ private:
 		}
 	    }
 	    nodep->text(result);
+	    setNumber(nodep, new V3Number(V3Number::String(), nodep->fileline(), result));
 	}
     }
 
